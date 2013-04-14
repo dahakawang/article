@@ -1,0 +1,704 @@
+\chapter{基础技术研究}
+\section{Ruby语言}
+Ruby是由松本行弘发明的，它于1995年首次面世。Ruby是一门面向对象的通用型编程语言，它具有动态性和类似Java的反射的高级编程语言特性。其语法参考了Perl和Smalltalk等老一辈语言的特性，并且还从函数式编程语言（诸如LISP、Eiffel）那里借鉴了不少设计思路\supercite{ruby-inspire}。
+
+\subsection{概述}
+Ruby是一门多种范式（Programming Paradigm）的语言，它支持：函数式编程、面向过程的编程，面向对象的编程、命令式编程以及反射式编程（既Ruby元编程）。Ruby内建动态类型系统，使得整个系统灵活多变，甚至可以不借助继承机制来实现多态。Ruby拥有垃圾回收器，使得Ruby程序员不再需要自行管理内存，提升了开发的效率。
+
+在Ruby 1.8.7版本以前，其解释器是由C语言实现。但从1.9版本开始，一直到最新的2.0版本，Ruby开始使用YARV（Yet Another Ruby VirtualMachine）虚拟机来执行其字节码，这使得Ruby的运行时效率大大提升。
+
+Ruby的语言标准是由OSPCITPA（Open Standards Promotion Center of the Information-Technology Promotion Agency）维护制定，并且交由ISO进行国际化。Ruby语言标准于2011年成为日本工业标准（JIS X 3017）\supercite{ruby-jp-standard}，并且于2012年成为了一套世界标准（ISO/ICE 30170）\supercite{ruby-inter-standard}。由于Ruby语言标准的国际化，使得大量的Ruby语言实现得以面世，这其中包括了：YARV、JRuby、Rubinius、IronRuby、MacRuby、mruby以及HotRuby。这些不同的语言实现中，IronRuby、JRuby、MacRuby以及Rubinius使用了JIT（Just In Time）编译技术，而MacRuby和mruby则使用了提前编译技术。
+
+\subsection{语法和语意}
+Ruby是一门纯粹的面向对象编程语言，在Ruby中，任何值都是一个对象。对象的内涵既包括了类，又包括了某种类型的实例，并且对于其他语言当做被当做基本数据类型的值在Ruby里也被看做一个对象。任何一个变量里，保存的总是一个指向某个对象的引用。而对于程序中顶层的函数，则也会被认为是一个特殊对象的成员函数。由于这个对象被Ruby认为是所有类的祖先，因此顶层函数能够通过任何对象调用。这些顶层函数亦对任何作用域可见，因而它们一般被用作为全局方法。Ruby支持的继承方式有传统面向对象语言支持的滞后绑定继承，Mixin以及单例继承。由于Ruby不支持多继承，Ruby开发者往往使用Maxin实现类似其他语言中的多继承特性。
+
+Ruby是支持多种编程范式：过程式编程（在class作用域外定义函数和变量，使得这些函数和变量成为全局符号以供访问）；面向对象式编程（所有的东西都被看做对象）；以及函数式编程（Ruby支持匿名函数、闭包以及延续性。Ruby中任何语句都有值，并且函数总是将最后一个语句的值当做返回值）\supercite{ruby-pro}。
+
+Ruby包含一个交互式解释器程序，能够支持反射技术以及元编程技术以及动态类型和参数化的多态。
+
+\subsection{元编程}
+元编程是Ruby语言最吸引人的特性之一\supercite{ruby-meta}。Ruby作为一门动态语言，能够允许开发者在程序运行时定义方法和类。在某些应用场景当中，传统的编程语言可能需要数小时的工作来完成，而使用Ruby的元编程则可以节省大量的时间。适时地使用Ruby元编程技术，可以使得代码更加符合DRY（Don't Repeat Yourself）标准，更加地具有伸缩性。
+
+客观上来说，元编程实际上依旧是在编写代码，不过这里编写的代码作用十分特殊，它们被用于在运行时生成另外的代码。在绝大多数情况下，这种特性不仅使得程序员能够更快地实现出某些功能，还能够让程序更具有通用性，能够适应更多的应用场景而不必重新编写和编译。因此，一般认为，元编程就是一种编写“写代码的代码”的技术\supercite{ruby-meta}。
+
+在Ruby语言中，所有东西都被视作一个对象。Ruby的根对象是Object（1.9版本之后是BasicObject），所有其他的对象均隐式地继承于这个对象。每个Ruby对象都有方法、和示例变量，而这些元素都可以在运行时被添加、修改甚至移除。为了展示这一点，下面使用代码\ref{meta-add-remove}作为例子：
+
+\begin{lstlisting}[caption={验证实例方法的动态添加}, label=meta-add-remove]
+# create an instance of Object
+my_object = Object.new
+
+# dynamically add method to set instance variable
+def my_object.set_my_var=(var)
+  @my_instance_var = var
+end
+
+ #dynamically add a method  to get instance variable
+def my_object.get_my_var
+  @my_instance_var
+end
+
+my_object.set_my_var = "Hello"
+my_object.get_my_var  # => Hello
+\end{lstlisting}
+
+在代码\ref{meta-add-remove}中，程序首先实例化了一个Object类的对象，并且动态地给这个对象添加了两个实例方法，一个用于获取实例变量@my\_instance\_var的值，另一个用于返回其值。值得指出的是，这里定义的两个方法，仅仅对my\_object是有效的，但是对于其他Object的实例来说是无法调用它们的。下面通过代码\ref{meta-validation}来验证之：
+
+\begin{lstlisting}[caption={验证动态添加的方法仅对该对象有效}, label=meta-validation]
+# create an instance of Object
+my_object = Object.new
+
+# dynamically add method to set instance variable
+def my_object.set_my_var=(var)
+  @my_instance_var = var
+end
+
+ #dynamically add a method  to get instance variable
+def my_object.get_my_var
+  @my_instance_var
+end
+
+# create a second instance of Object
+my_other_object = Object.new
+
+my_other_object.set_my_var = "Hello" # => NoMethodError
+\end{lstlisting}
+
+可以看到，当程序尝试在my\_other\_obejct对象上调用set\_my\_var方法时，Ruby抛出了一个NoMethodError，告知”my\_other\_obejct“并没有包含名为set\_my\_var的实例方法。
+
+可以将上述代码和传统的定义一个Ruby类方法的代码比较看看：
+
+\begin{lstlisting}[caption={定义一个类方法}, label=meta-class-def]
+class MyClass
+  def self.capitalize_name
+    name.upcase
+  end
+end
+print MyClass.capitalize_name # => MYCLASS
+\end{lstlisting}
+
+在代码\ref{meta-class-def}中，和之前代码类似，按照“实例.方法名”（实例通过self引用）的方式定义了一个类方法。唯一不同的是，这次是在一个类里定义实例方法。正如在代码\ref{meta-validation}中看到的，在本例中，capitalize\_name也仅仅属于MyClass这个对象（Ruby中Class也是一种对象），而不能通过其他类来调用。对于代码\ref{meta-class-def}，我们还有其他方式实现同样的效果。
+
+
+\begin{lstlisting}[caption={其他定义类方法的例子}, label=meta-class-def-opt]
+# approach 1
+class MyClass
+  # defining a class method within the class 
+  def MyClass.capitalize_name
+    name.upcase
+  end
+end
+
+# approach 2
+class MyClass;end
+# defining a class method out with the class
+def MyClass.capitalize_name
+  name.upcase
+end
+
+# approach 3
+# define a new class named MyClass
+MyClass = Class.new
+# add the capitalize_name to MyClass
+def MyClass.capitalize_name
+  name.upcase
+end
+\end{lstlisting}
+
+可以看到，第三种方法和\ref{meta-add-remove}里的例子十分相似。并且不难发现，当我们在Ruby的类中定义一个类方法，这等价于我们实例化一个Class对象，然后给该对象添加方法。
+
+Ruby编程的一个重要原则便是DRY（Don't Repeat Yourslef），许多代码由于本身的相似性，实际上我们是有机会移除这些重复的部分的。为了说明，考虑一个汽车厂部署了一套管理汽车数据的系统，我们定义了一个CarModel类来储存汽车的基本数据：
+
+\begin{lstlisting}[caption={一个充斥着冗余代码的例子}, label=meta-dry]
+class CarModel
+  def engine_info=(info)
+    @engine_info = info
+  end
+
+  def engine_info
+    @engine_info
+  end
+
+  def engine_price=(price)
+    @engine_price = price
+  end
+
+  def engine_price
+    @engine_price
+  end
+\end{lstlisting}
+
+代码\ref{meta-dry}对汽车基本数据进行了建模，考虑到简洁性这里做了删减，实际上可能还有更多的数据域。实际上虽然CarModel的方法数量巨大，但实际上每个方法都十分简单，而且十分相似。因此，我们尝试使用一些批量的方法来生成这些方法：
+
+\begin{lstlisting}[caption={利用元编程批量生成Getter和Setter}, label=meta-batch]
+class CarModel
+  FEATURES = ["engine", "engine_price"]
+
+  FEATURES.each do |feature|
+    define_method("#{feature}=") do |value|
+      instance_variable_set("@#{feature}", value)
+    end
+
+    define_method("#{feature}") do
+      instance_variable_get("@#{feature}")
+    end
+  end
+end
+\end{lstlisting}
+
+在代码\ref{meta-batch}中，我们定义了一个数组来保存该类的所有示例变量。接着我们为每个示例变量调用以此Module\#define\_method方法，正如该方法名字所暗示的，我们用它来定义方法。这样，每个示例变量便有了名为xxx和xxx=的Getter和Setter方法。然后，在每个方法内部，我们分别使用Object\#instance\_variable\_set和Object\#instance\_variable\_get方法来相应地获取或者设置数据。不难发觉，通过使用Ruby的元编程，我们节省了大量的代码。这种优势在有大量重复性代码的情况中特别明显。
+
+为了更为深刻地理解上面的例子，我们还需要了解一下Ruby的对象模型是怎么样的，Ruby是如何处理函数调用的。实际上，每当你通过一个对象调用方法的时候，Ruby解释器首先会检查当前对象中是否包含该方法的定义。如果能够找到其定义，解释器则会执行之，否则，解释器会沿着该对象的继承链往上继续查找，直到遇到这个方法的定义或者遇到Object类为止。
+
+如果解释器最终没有找到目标方法的定义，那么Object\#method\_missing()的方法讲被调用\supercite{ruby-pro}。我们可以通过重载Object的默认方法来实现我们自己的逻辑，而Object中默认的实现则是抛出一个NoMethodError的异常。
+
+\section{Ruby工具及库}
+Ruby是一门现代化的语言，更是一门能够用于工程级别开发的语言。这其中除了Ruby语言本身有着很好的特点之外，更多的在于Ruby生态系统内大量可用的开发工具。为了更为有效地使用这门语言进行开发，首先我们需要了解Ruby体系内各种重要的工具和库。
+\subsection{RVM简介}
+RVM是一套基于命令行的工具，它用于安装和管理Ruby，提供在不同版本的Ruby的实现之间进行方便切换的功能。RVM同时提供了一套被称作Gemset的机制，该机制使得同一台电脑上不同的Ruby版本可以构和不同的RubyGem集合协同工作，这对一些对运行时环境和Gem版本有着严格要求的应用开发很有帮助。
+
+为了使用RVM，我们首先需要安装RVM。通过代码\ref{rvm-install}我们可以在本地安装RVM最新的稳定版本：
+
+\begin{lstlisting}[language=bash, caption={安装RVM}, label={rvm-install}]
+$ curl -L get.rvm.io | bash -s stable
+$ source ~/.bashrc
+$ source ~/.bash_profile
+\end{lstlisting}
+
+以上命令第一行首先通过curl从get.rvm.io网站上将RVM的安装脚本下载到本地。脚本通过一个管道传送到bash里去，并且附以参数stable。这将告诉RVM安装脚本，我们需要安装最新的RVM稳定版本（也可以使用lastest选项安装最新的版本）。取决于本地网速，RVM安装脚本会花一些时间从服务器中下载RVM代码，然后安装到当前用户跟根目录下（即~/.rvm目录）。
+
+当RVM安装完成后，便可以通过RVM获取和管理Ruby的各个发行版了。这里要指出的是，受限于国内的网络环境，通过RVM默认的地址去下载Ruby速度十分缓慢。我们可以通过修改下载地址的方式提高其速度，下面的代码演示了这一点：
+
+\begin{lstlisting}[numbers=none, caption={更改RVM默认安装源}]
+$ sed -i -e 's/ftp\.ruby-lang\.org\/pub\/ruby/ruby\.taobao\.org\/mirrors\/ruby/g' ~/.rvm/config/db
+\end{lstlisting}
+
+在RVM安装配置完毕之后，便可以使用它进行Ruby的安装了。本文将就RVM的常见命令加以阐述：
+
+\begin{lstlisting}[caption={RVM常见命令说明}, label={rvm-com}]
+# list all the rubies that rvm knows
+rvm list know
+
+# to install a version of ruby
+rvm install 1.9.3
+
+# to use a ruby version in current session
+rvm use 1.9.3
+
+# to set the version of ruby as system defaults
+rvm use 1.9.3 --default
+
+# list all the rubies you've installed
+rvm list
+
+# to remove a version of ruby 
+rvm remove 1.9.3
+\end{lstlisting}
+
+正如代码\ref{rvm-com}的注释里所说明的，使用RVM我们可以很容易的安装、部署和使用任意一个版本的Ruby。并且，区别于传统的二进制发布系统，RVM是一个基于源代码工作的系统。这意味着当用户指名安装某个版本的Ruby后，RVM回去下载去相应的源代码，然后在本地编译安装，而非直接下载该版本Ruby的二进制编译版本。这里带来的好处了是使得Ruby安装具有更大的灵活性，并且，这也给用户一个指明编译参数的机会，使得Ruby能够充分利用本机的硬件特点，最大化执行掉率。
+
+\subsection{RubyGem技术简介}
+和Java、C等其他语言一样，Ruby支持模块化的开发程序。作为模块化开发的先决条件，代码的引用必不可少。在C语言中，我们通过include告知编译器本模块将要使用其他地方的代码。此时编译器将找到对应的头文件，并将其原地展开。通过对头文件中代码的解析，编译器知道了要引用的代码的声明（Declaration）。所谓声明，即是指编译器知道将要引用的代码是什么样，但却并不知道代码具体是什么（Definition）。而为了真正地用上所引用的代码，则需要在链接的时候，向linker指明引用库的地址。而这个所谓的引用库，才包含了引用代码的具体定义。
+
+反观Ruby的require语句。当程序require某个外部代码的时候，这实际上是告诉编译器寻找对应的rb文件。这个rb文件便是引用代码的具体定义。可以很直观得看到两者的本质区别：由于Ruby没有传统意义上的链接过程，程序require实际上是载入代码的实现/定义；而对于C编译器来说，include只不过是告诉编译器目标代码的形式，这使得编译器有足够信息能够生成“调用代码”，而“实现代码”则是在链接阶段予以提供的。
+
+按照官方解释，require将会在Ruby的LOAD\_PATH中查找对应文件并将其载入。但实际上，由于现代化的软件开发过程涉及了大量软件库的依赖关系和版本的依赖关系，简单的require机制已经完全不能够满足工业级别的需求。于是，RubyGem作为一种包管理机制，出现在了Ruby开发者的眼前。
+
+在RubyGem技术里，使用术语Gem表示传统软件开发中的第三方库。RubyGem包管理机制的基本思路十分简单：首先，由于Ruby只会在LOAD\_PATH里寻找待载入代码，那么如果定义“使用某个Gem”为将该Gem所在路径添加到Ruby的LOAD\_PATH里，这样当程序使用某个Gem时，Ruby解释器便能够知道如何载入这个Gem的代码了。其次，RubyGem规范规定在包的根目录下必须包含.gemspec文件，该文件需包含诸如作者、主页、依赖的库等等信息，这便是Gem的元数据。最后，我们把Gem的根目录命名为Gem名加版本号，这便有了多版本的管理机制。下面讲具体考察RubyGem的工作细节。
+
+按照惯例，开发者一般使用类似require ‘arel’的方式来载入Gem代码。可是，根据require函数定义，实际上需要将类似’gems/arel-3.0.2/arel’的参数传给require才能达到载入的目的。为了使用更为简单的类似require ‘arel’的形式，需要在此之前使用gem ‘arel’ 语句，该语句按照RubyGem定义的规范照到arel库某个具体版本的位置，并将它加入到LOAD\_PATH里，这才使得简单的require能够工作。在最近版本的Ruby里，Kernel\#require默认会被RubyGem里的同名函数覆盖。因此，在新版本的Ruby里，可以不需要gem语句，可以直接require某个Gem（早期版本的Ruby则需要先显式调用require ‘rubygem’）。不过，若需要进一步指定使用某一版本的Gem（Gem ‘arel’, ‘＞=3.0.0’），还是需要显示地调用gem方法。
+
+\subsection{Bundler技术简介}
+传统语言的开发环境搭建过程十分复杂，除了软件系统本身的复杂性外，还得受错综复杂的各种依赖关系所累。作为开发者，常常是程序尚未开始编译，就得疲于安装各种依赖库。
+
+然而，在Ruby环境下，这个问题已然被Bundler技术解决。软件系统需要什么依赖库，具体依赖该库的哪个版本，将由一个称之为Gemfile清单来描述。开发者check out系统代码代码后，在工程根目录执行bundle install。Bundler技术将自动安装部署依赖库相应版本到本地，开发环境很容易便能搭建起来。
+
+但值得指出的是，Bundler致力于确保Gem所有依赖库均被安装到本机，但它并不保证列在Gemfile里列出的依赖库最终会在运行时被载入。于是为了让程序使用这些库，需要在运行时调用Bundler.setup，该方法会将列举在Gemfile里的所有Gem被添加到LOAD\_PATH中去。因此，Bundler.setup的行为类似于gem方法，用于将特定版本的Gem载入到LOAD\_PATH。不过Bundler提供的是更为高级的机制，使得开发者能够在Gemfile里集中地管理所有依赖，并且省去了一一添加依赖的繁琐过程。
+
+Bundler还提供了一个Bundler.require方法，该方法提供了比Bundler.setup更为方便的特性，它将直接将Gemfile列举的依赖全部载入内存。不过，业界关于使用Bundler.setup还是Bundler.require的争论由来已久。Bundler.setup提供了一个妥协，使得程序可以实现滞后载入（Lazy Loading），从而减少不必要的加载，加快程序启动速度。而Bundler.require则主要是基于方便开发者（Programmer Friendly）的考量，它使开发者省去了大量的精力去显式地加载代码。
+
+关于Bundler技术的Gemfile.lock文件，有几点是需要指出的。首先是是否需要check in该文件到代码版本仓库里？这里的答案要度时而定。首先，由于Gemfile一般指明了一个依赖版本范围（或者没有），当执行bundle install指令之后，生成的Gemfile.lock实际上是指明了每个依赖Gem的一个固定版本(在满足Gemfile指明的版本范围前提下)。
+
+于是，考虑如下场景。对于Gem库的开发者来说，他们总是希望其软件Gem库能够和尽可能多版本的依赖Gem一同工作；而对于应用开发者来说，他们却往往希望依赖的Gem版本维持不变（应用需进行十分严格的测试，可能将将精确到Gem库的具体行为上，从而产生版本依赖），以保证发布后的应用十分稳定。
+
+综合以上分析可得出了结论，在开发Gem的时候，之所以不添加Gemfile.lock到代码库，因为开发者希望其他开发者通过bundle install绑定到依赖库尽可能多的版本，借此保证开发的Gem能够和更多的依赖库协同工作。而在开发应用之时，开发者希望所有的开发者以及用户，严格的使用和自己一样的依赖库版本，这使得每个人使用的依赖库行为严格一致，从而保证了应用的健壮性。
+
+最后，需要说明的是。在开发Gem的时候，gemspec（RubyGem的一部分）文件虽然已经指出依赖关系，却还是需要在Gemfile里指名依赖关系。我们知道，gemspec主要是用来描述Gem的元数据信息的，除了可以在此包含Gem的基本信息之外，还能够在此指出本Gem具体依赖于哪些其他Gem。不过，值得注意的是，这里仅仅是指出依赖关系，.gemspec并没有提供任何机制告诉系统，如何获取并部署这些被依赖的Gem。而gemspec文件之所以缺少运行时的支持，那是因为下载、部署、以及载入并不是其设计之初的职责所在。这些问题是被后来者Bundler解决的。作为Gem开发者，为了减少Gemfile和gemspec文件内容的冗余性，可以在Gemfile文件中调用gemspec方法，该方法将告知Bundler到同目录下查找gemspec文件并引入其中指明的Gem依赖。
+\subsection{分布式Ruby技术简介}
+DRb(Distrubuted Ruby)即分布式Ruby技术，该技术提供了一种机制，使得Ruby开发者能够通过网络相互通信。DRb提供了一套远程过程调用（Remote Procedure Call）的接口，这使得开发者能够避免直接使用原始套接字，从而提高了编程体验，减少了程序出错的可能性。
+
+在DRb技术的编程模型中，有一个DRb服务器用于接收远程的RPC请求，并在本地执行相应代码完成其请求。而DRb客户端则是通过一个地址连接上DRb服务器，然后获取一个被称作前端对象（Front Object）的实例，通过该实例，实现向DRb服务器发送请求。
+
+为了说明DRb技术的细节，代码\ref{drb-server}展示如何建立一个DRb服务器：
+
+\begin{lstlisting}[caption={DRb服务器实现代码}, label=drb-server]
+#!/usr/bin/env ruby -w
+require 'drb'
+
+# define a front object as the server's interface
+class FrontObject
+	define greet
+		puts "hello from client"
+	end
+end
+
+# start up the DRb service
+DRb.start_service nil, FrontObject.new
+
+# Print the server's address
+puts DRb.uri
+
+# wait for the DRb service to stop
+DRb.thread.join
+\end{lstlisting}
+
+代码\ref{drb-server}首先载入了DRb相关引用库，然后通过DRb.start\_service接口在本进程内启动了一台DRb服务器。start\_service的的第一个参数被赋以nil，这告诉DRb该程序将使用一个随机的地址和端口，而不是固定的。也可以通过指定类似"druby://localhost:2250"的字符串来告知DRb程序想使用某个固定地址。第二个参数则是一个前端对象，所谓前端对象是DRb能够从特定服务器上获得的唯一一个对象，习惯上我们一般将该对象实现成一个工厂，用以让DRb客户端进一步获取其他接口。代码\ref{drb-server}的15行打印了DRb服务器所绑定的地址，此时，其他DRb客户端便可以通过改地址访问服务器了。最后，为了防止主线程退出导致服务器关闭，我们使用Thread\#join方法，显式地等待服务器线程结束。
+
+到此为止，DRb服务器已在本机打开了某个端口并开始监听。如若此时接受到客户端的请求，它将返回FrontObject的引用给客户端，客户端则能够像使用普通对象一样调用该对象的任何方法。代码\ref{drb-client}展示了DRb客户端如何工作：
+
+\begin{lstlisting}[caption={DRb客户端实现代码}, label=drb-client]
+#!/usr/bin/env ruby -w
+require 'drb'
+
+DRb.start_service
+
+# attach to the DRb server via a URI given on the command line
+remote_obj = DRbObject.new nil, "druby://localhost:8080"
+
+remote_obj.greet
+\end{lstlisting}
+
+运行代码\ref{drb-client}的结果将使得DRb服务器端的控制台上打印出“hello from client”这句话。这是因为客户端通过前端对象的接口访问远程代码，而远程代码实际上实在服务器端执行的，所以这里打印的结果显示在服务器端。
+
+\section{Rails框架介绍}
+Ruby on Rails(简称Rails)是一款基于Ruby语言的开源网站开发框架，它是一个全栈的框架（Full Stack Framework）\supercite{rails-book}。开发者使用Rails，可以进行创建页面、创建Web应用、获取服务器数据、查询数据库、渲染页面模板等工作。同时，Rails内置一套路由子系统，该子系统用于URL请求的路由，并且该系统是和Rails完全独立的。Rails是一套现代化的程序开发库，它强调使用合适的软件实践方法来指导软件的设计和开发。Rails本身的设计则体现了这一原则，Rails使用了大量设计模式，诸如Active Record模式、Convention Over Configuration模式、Don't Repeat Yourself模式以及Model View Controller模式等等。
+
+Rails的设计哲学之一便是简洁性。Rails拓展了标准Ruby语言的一些特性，使得开发者更容易编写Rails程序，并且代码的可读性也因此大大增强了。Rails使得开发者能够在代码里简单的指明需求，而要达到这点，传统的开发框架却需要外部的配置文件，Rails的这个特性使得开发者能够更清晰地直到当前应用程序的配置方案，而不必像传统开发者一般疲于应付大量配置参数。代码\ref{rails-simple}作为一个示例，演示了Rails框架的简洁性：
+
+\begin{lstlisting}[caption={简单的Rails程序示例}, label=rails-simple]
+class Project < ActiveRecord::Base 
+  belongs_to :portfolio
+  has_one :project_manager 
+  has_many :milestones
+  has_many   :deliverables, :through => :milestones
+  
+  validates  :name, :description, :presence => true
+  validates  :non_disclosure_agreement, :acceptance => true
+  validates  :short_name, :uniqueness => true
+end
+\end{lstlisting}
+
+上面的类代表了一个数据库实体，Project的类名确保了数据库有一个被称之为projects的表，表内每一行记录都会可以被映射成Project的实例对象。而在Project类的内部，我们定义了诸如数据关系（一个Project是belong\_to某个portfolio，一个Project拥有一个project\_manager等等），我们同时定义了数据的验证规则，确保了其安全有效性（name域是不能为空的，short\_name是必须唯一的）。可以看到，通过在类中直接指明这些关系，开发者可以直观的认识整个系统的数据组成和结构，同时Rails框架亦会根据这些信息，自动地帮助开发者完成诸如数据表生成、实体关系建立以及数据验证等诸多工作，省去了开发者大量精力和时间。
+
+除了上述示例，Rails的简洁性还提现在其DRY原则和Convention Over Configuration原则上\supercite{rails-book}。DRY原则既是指在一个系统之中，每种信息只能出现在系统的一个地方，DRY原则反对数据和信息的冗余定义。借助Ruby语言的强大特性，Rails框架使得程序几乎没有重复性工作。开发者只需要在规定的地方填写相应数据即可告知Rails如何去配置整个程序，这是区别于传统网站开发框架的特性。而Convention Over Configuration则表示Rails默认不会要求开发者指名所需的所有参数，它会按照一个业界公认的标准来行为，除非开发者显式地声称自己要重载这套做法的某一方面。这种方法相对于传统的，诸如Java使用XML来进行配置的方法来说，大大地减少了代码量，提高了简洁性。
+
+\subsection{Rails的安装部署}
+为了进行Rails开发，首先需要将Rails部署到本地。为了在安装Rails之前，需要满足以下先决条件：
+\begin{itemize}
+\item Ruby解释器。Rails是由Ruby语言编写而成，故开发者亦需要使用Ruby进行开发。Rails 3需要Ruby1.8.7或者1.9.2，并且会自动进行适配\supercite{rails-book}。
+\item Ruby的包管理程序RubyGem
+\item 常用的系统依赖库
+\item 数据库（MySQL、SQLite等）
+\end{itemize}
+
+上述清单对于开发Rails程序来说已经足够，但如果还需要部署Rials程序，我们则需要安装一个可用的Web服务器。一般来讲，作为开发环境下临时使用的服务器，我们一般选择WEBrick，最为最终发布版我们可以使用Apache或者Niginx等服务器。
+
+接下来，本文将以Ubuntu 12.10版本为例，阐述如何安装Rails开发环境。首先需要安装的是Rails的依赖项：
+
+\begin{lstlisting}[caption={安装Rails依赖}, label=rails-dep, language=bash]
+sudo apt-get install build-essential libopenssl-ruby libfcgi-dev
+sudo apt-get install ruby irb rubygems ruby1.8-dev
+sudo apt-get install sqlite3 libsqlite3-dev
+\end{lstlisting}
+
+安装完成之后，在正式安装Rails之前，还需要确认RubyGem的版本是否高于1.3.6，我们可以通过gem -v命令来查看之。如果发觉RubyGem版本过低，我们可以使用gem update --system指令来进行更新。在确认RubyGem版本之后，我们将安装Rails和依赖的SQLite数据库。
+
+\begin{lstlisting}[caption={安装Rails及SQLite}, label=rails-ins, language=bash]
+sudo gem install rails
+sudo gem install sqlite3-ruby
+\end{lstlisting}
+
+在代码\ref{rails-ins}中最后一条指令执行时，将会提示选择使用哪种合适于当前平台的gem。可以选择最新的版本，该版本由于使用了本地扩展机制，使得执行效率较高。当代码\ref{rails-ins}执行完成之后，我们可以使用rails -v来进行测试。如果此时提示找不到该命令，我们需要吧/var/lib/gems/1.8/bin添加到环境变量之中去。我们通过向~/.bashrc中添加如下一行达到此效果：
+
+\begin{lstlisting}[caption={添加Rails环境变量}, label=rails-env, language=bash, numbers=none]
+export PATH=/var/lib/gems/1.8/bin:$PATH
+\end{lstlisting}
+
+这一步成功之后，便代表着Rails成功安装到本地了。当然，此时我们安装的是最新版本的Rails。如果对Rails版本有其他需求，下面则介绍了如何和多个Rails版本一同工作。首先需要确认所安装的Rails版本：
+
+\begin{lstlisting}[caption={枚举本地Rails版本}, label=rails-version, language=bash, numbers=none]
+gem list --local rails
+\end{lstlisting}
+
+代码\ref{rails-version}指出了如何列举本地所有Rails安装版本，但如果需要查询当前系统默认使用的Rails版本，则可以通过rails --version来查知。若需要安装某个特定版本的Rails，可以通过gem指令来完成：
+
+\begin{lstlisting}[caption={安装特定版本的Rails}, label=rails-version-ins, language=bash, numbers=none]
+gem install rails --version 3.0.3
+\end{lstlisting}
+
+代码\ref{rails-version-ins}展示了如何安装Rails 3.0.3版本。在开发过程中，可以用下述方法指名使用哪个版本的Rails
+
+\begin{lstlisting}[caption={指定使用特定版本的Rails}, label=rails-version-ins, language=bash, numbers=none]
+rails _3.0.3_ --version
+\end{lstlisting}
+
+代码\ref{rails-version-ins}指出了如何为通过运行时参数的形式指名欲使用的Rail版本。在使用Rails生成应用程序的时候，该指令十分有用。当我们使用某一版本的Rails创立了一个工程之后，即使开发者安装了其他版本的Rails，该工程将会持续使用这个版本的Rails。如若想要变更当前工程使用的Rails，可以通过更改Gemfile的方式来实现。我们首先找到位于工程根目录的Gemfile，然后更改其中指名Rails的字段，最后执行一次bundle install即可。
+
+\subsection{MVC框架介绍}
+MVC框架既是指代ModelView-Controller，是一种软架构模式（设计模式），其主要目的在于将信息的表示和用户的交互显示逻辑分离开来，从而减少软件系统的耦合性，提高系统各部件的模块性\supercite{mvc-01}\supercite{mvc-02}。
+
+除了将软件系统本身划分为三大模块之外，MVC框架还详细定义了每个模块之间的具体交互方式\supercite{mvc-03}。
+
+\begin{itemize}
+\item Controller。该部件用于向其控制的View发送指令（比如翻页、滚动等），同时该部件亦向model发送消息已改变其状态（例如编辑文档内容）。实际上，该部件可以视作其他两个部件的胶和剂。
+
+\item Model。该部件在其状态更改时，负责通知相应的Controller和View。这个消息使得其他两个部件可以相应地更新自己的状态（VIew刷新显示输出，Controller则改变当前可用命令）
+
+\item View。该部件负责向Model请求数据，并且将数据显示出来。
+\end{itemize}
+
+实际上，在MVC中，软件系统往往存在着一种依赖的层次结构。首先，Model部件仅仅直到自己的存在，这意味着Model的实现代码不需要和View或者Controller有任何关联。而对于View来说，它知道Model的存在（因为会向其请求数据），通过询问Model的状态，View决定显示的内容。不过，View并不需要直到Controller的存在。最后，对于Controller来说，它既知道Model的存在，也知道View的存在，这是因为是它负责将其他两个部件粘合起来的。而我们之所以这么设计MVC，是因为想要尽可能减少依赖。通过MVC，不管View部件如何改变，即使View从一个Windows部件移植成为一个Android或者IOS部件，其他两个部件都不需要做出任何改动，从而提高了代码的复用性，减少了工作量。
+
+MVC框架在互联网开发商应用广泛，几乎被所有库和语言支持。Ruby On Rails甚至强制开发者使用这一模式进行软件开发。在Web应用开发中，MVC又进一步细分为客户端和服务器两部分。早期的MVC框架使用瘦客户端策略，将Model、View和Controller大大部分代码部署到服务器上。通过这种方式，客户端将使用超链接或者一个HTML表单技术向Controller提交请求，并且从View处获取渲染结果的输出。可以看到，这种方式的特点是，整个MVC框架几乎都部署在服务器上\supercite{mvc-04}。近几年，随着客户端技术的发展，诸如JavaScriptMVC和Backbone的技术逐渐成熟，通过这些技术，我们可以将MVC的一下部件放置到客户端，从而减轻了服务器的压力。
+
+\subsection{Rails整体架构介绍}
+Rails主要由ActiveRecord、ActionController和ActionView以及Railties这几大部件构成的。其中，ActiveRecord、ActionController和ActionView分别对应了MVC模式的三大部件，而Railties则是负责在运行时管理、载入和初始化这些部件的。
+
+默认情况下，ActiveModel将被Rails映射到数据库的某个表上。例如，一个继承于ActiveModel的类User，Rails将会在数据库中建立users表，并且该实体类将被定义到app/models/user.rb文件中。程序可以通过User类来操作后台的数据库。
+
+ActionController是Rails响应来自客户端请求的关键部件，它将接收来自客户端程序的请求，然后决定使用某个View部件进行显示。ActionController还负责从ActiveModel处直接获取数据，并将其穿送给View。一般而言，一个ActionController提供一个或者多个action，每个action都将被映射到某一URL地址上，以便被客户端请求调用。在Rails技术中，一个action是一个用于描述如何响应特定请求的基本单元。值得指出的是，为了让ActionController的action能够被外部客户访问，必须将其加入到Rails的URL路由系统之中，并注册与之关联的URL。Rails推荐开发者大量使用遵循RESTful标准的路由策略，因此，开发者应该创建诸如create、new、edit、update、destroy、show和yindex等方法，以便于这些标准方法被自动地被路由器映射到URL上。
+
+ActionView则是Rails第三个标准组件。一般来说，ActionView是以.erb的文件形式出现的，该文件将被Rails在运行时转换成输出。这里的输出可以是任何形式，当然，在Web开发中，我们输出标准HTML语言。
+
+Rails提供了许多有用的工具，用以简化实现这些标准部件的过程。比如scaffolding指令，它可以自动的生成Model和View以及一个简单的Web框架。另一个是WEBrick，这是一个标准的HTTP服务器，它是由纯Ruby实现，并且和Ruby一同发布。还有一个是Rake，是一个Ruby的构建系统，类似于make。
+
+除了上述三大部件之外，还有一个Railties部件，Rails使用它来加载和初始化其他部件，并由它为Rails提供了一套通用的插件系统解决方案。对于Railties系统来讲，其他的组件（Action Mailer, Action Controller, Action View 和 Active Record）均被视作一个Railtie，每个部件都定义一个初始化接口，这些接口由Railties在运行时发现，并且各自初始化。这种技术使得Rails能够在缺失任何组件的前提下起动起来，同时还提供了将标准组件替换为为第三方实现的机会，以及给Rails添加插件，实现新的逻辑的一套机制。
+
+代码\ref{railtie-imp}展示了如何实现一个Railtie：
+
+\begin{lstlisting}[caption={一个简单的Railtie实现}, label={railtie-imp}]
+class MyRailtie < Rails::Railtie
+  initializer "my_railtie.configure_rails_initialization" do |app|
+    app.middleware.use MyRailtie::Middleware
+  end
+end
+\end{lstlisting}
+
+在代码\ref{railtie-imp}中，我们首先继承了Rails::Railtie这个类，使得我们的MyRailtie成为了一个Railtie。接着，我们定义了一个初始化接口，该接口为Rails初始化了一套中间件，并告知Rails去使用它。这个初始化过程会在Rails启动的时候被自动调用，当然在此之前，需要将该代码\ref{railtie-imp}载入到内存中，以便代码\ref{railtie-imp}将自己注册给Railties。我们可以通过将代码\ref{railtie-imp}封装成一个Gem，并在应用程序的Gemfile里包含之的方式实现注册过程。
+
+\section{Rack劫持技术}
+Rack是一套服务器中间件技术，它提供了一套标准的接口，供Ruby与服务器交互。由于Rack隐藏了不同服务器间的差异，并提供了一套通用接口，使得同样一套上层代码能够较为容易的适配不同的服务器，这大大减少了开发者的工作量。Rack劫持技术则是指运行在Rack上的应用程序，可以通过直接从Rack处获取TCP套接字，从而使得上层应用能够绕开服务器的标准流程，实现自定义的逻辑。这给SSE服务器等类似应用的实现提供了很大的便利。
+
+\subsection{Rack介绍}
+Rack提供了一组简单的、模块化的并且具有较高适应性的接口给开发者，使得开发者能够基于基于其上为大量服务器开发应用。Rack通过封装HTTP请求和响应两个数据接口，极大的简化和统一了不同服务器、不同框架以及不同的中间件之间API的差异。
+
+Rack的设计受到Python的wsgi框架的影响，现已成为Ruby社区Web服务器开发的标准接口。由于其简洁性和精确性并存的特点，使得开发者大大减少了适配不同服务器的工作量。
+
+实际上，Rack技术有两部分构成，其一是Rack本身是一套标准的交互协议，另外一个则是基于该协议由Rack开发者实现的一套工具集和程序库。
+
+首先，Rack协议规定了Rack程序和Web服务器之间交互的标准。按照Rack标准，一个Rack兼容的组件应该是一个能够响应call函数调用的对象。该调用仅有一个参数，这个参数就是env，包含了所有关于当前HTTP请求的信息。并且，该方法必须返回一个数组，该数组仅包含三个元素，分别是：HTTP返回状态码，HTTP头，HTTP报文内容。实际上，按照Rack协议的定义，任何遵守该协议的Rack组件都可以协同工作，即使我们不使用Rack的标准实现。
+
+为了阐述Rack的使用，我们首先需要安装Rack，代码\ref{rack-ins}显示了如何做到这一点：
+\begin{lstlisting}[caption={安装Rack}, label=rack-ins, language=bash, numbers=none]
+sudo gem install rack
+\end{lstlisting}
+
+在安装完成后，我们便可以使用Rack了。
+
+\begin{lstlisting}[caption={一个简单的Rack服务器}, label=rack-demo]
+require 'rubygems'
+require 'rack'
+
+class HelloWorld
+  def call(env)
+    [200, {"Content-Type" => "text/html"}, "Hello World"]
+  end
+end
+
+Rack::Handler::Mongrel.run HelloWorld.new, :Port => 9292
+\end{lstlisting}
+
+代码\ref{rack-demo}展示了如何建立一个Rack服务器。程序通过Rack接口使用了Mongrel服务器（并且可以很容易地切换到其他服务器），通过rackup指令执行代码\ref{rack-demo},会使Mongrel服务器启动。这之后任何访问该服务器(http://localhost:9292)的浏览器都会都会收到状态为200的HTTP包，并且在其内容中显示Hello World这句话。
+
+根据Rack协议，我们可以看到代码\ref{rack-demo}中的HelloWorld类有如下特点：
+
+\begin{enumerate}
+\item 定义了call方法，该方法接收一个参数env
+\item call方法返回一个类似[HTTP\_STATUS\_CODE, RESPONSE\_HEADER, BODY]的数组
+\end{enumerate}
+
+值得指出的是，标准中仅仅定义Rack程序是一个对象，并且能响应call调用。因此，这使得除了上述定义一个类的方法之外，还可以使用定义一个Proc对象和使用method方法。代码\ref{rack-opt-way}展示了这一点：
+
+\begin{lstlisting}[caption={Rack程序的其他实现}, label=rack-opt-way]
+# another way to define a rack application
+require 'rubygems'
+require 'rack'
+
+Rack::Handler::Mongrel.run proc {|env| [200, {"Content-Type" => "text/html"}, "Hello Rack!"]}, :Port => 9292
+
+
+# third way to define rack application
+require 'rubygems'
+require 'rack'
+
+def application(env)
+  [200, {"Content-Type" => "text/html"}, "Hello Rack!"]
+end
+
+Rack::Handler::Mongrel.run method(:application), :Port => 9292
+\end{lstlisting}
+
+Rack的标准实现中，附带了大量的辅助工具，使用它们可以进一步提高开发效率。在之前的例子中，我们直接使用了Rack::Handler::Mongrel以定义欲使用的Web服务器，并且将欲使用的端口号应编码到了程序里。如果我们使用Rack附带的rackup命令，我们能够是这一切再简化。我们将仅仅使用一个.ru配置文件，便能够实现和之前一样的效果。该配置文件内容如下：
+
+\begin{lstlisting}[caption={Rack配置文件}, label=rack-config]
+# config.ru
+run Proc.new {|env| [200, {"Content-Type" => "text/html"}, "Hello World"]}
+\end{lstlisting}
+
+接下来，为了让服务器运行起来，我们可以键入代码\ref{rack-run}:
+
+\begin{lstlisting}[caption={安装Rack}, label=rack-run, language=bash, numbers=none]
+$ rackup config.ru
+\end{lstlisting}
+
+这样，一个显示Hello World页面的服务器就启动了。这里需要支出的是，我们可以通过给rackup传送参数-p来指明希望服务器绑定的端口号，通过-s来指定默认使用的服务器。
+
+\subsection{Rack劫持}
+Rack劫持（Rack Hijack）是从Rack 1.5.0版本开始引进的新特性。该技术允许上层应用接管客户端套接字，并绕过服务器自行发送任意数据。该技术对实现WebSockets以及SSE等标准提供了很大的便利。
+
+
+Rack劫持标准定义了两种模式，其一是完全劫持，其二是部分劫持。
+
+\begin{itemize}
+\item 完全劫持。该模式使得上层应用程序完全接手客户端套接字。在这个模式下，服务器完全不会发送任何数据到客户端，而是由上层应用发送数据。如果需要实现某些非HTTP兼容的协议，这个模式非常有用。但是这个模式也有缺陷，如果Rack服务器在HTTP负载均衡器后面的话，这些组件可能会难以识别出本服务器。
+
+\item 部分劫持。在这个模式下，上层应用仅会在服务器发送完HTTP报头之后接管客户端套接字。这个模式兼容HTTP协议，非常适合实现SSE等特性。
+\end{itemize}
+
+Rack劫持是通过env来实现的。可以通过env['rack.hijack?']这个布尔值来实现检查当前服务器是否支持Rack劫持技术。
+
+可以通过调用env['rack.hijack'].call方法来启用完全劫持模式。当其env['rack.hijack'].call调用成功之后，可以通过env['rack.hijack\_io']来获取客户端原始套接字的IO对象。这之后，应用程序的职责有：
+
+\begin{itemize}
+\item 输出HTTP头（如果需要与HTTP协议兼容的话）
+\item 关闭IO对象
+\end{itemize}
+
+下面的代码阐述了如何实现Rack完全劫持：
+
+\begin{lstlisting}[caption={Rack完全劫持}, label=rack-fh]
+# encoding: utf-8
+require 'thread'
+
+app = lambda do |env|
+  # Fully hijack the client socket.
+  env['rack.hijack'].call
+  io = env['rack.hijack_io']
+  begin
+    io.write("Status: 200\r\n")
+    io.write("Connection: close\r\n")
+    io.write("Content-Type: text/plain\r\n")
+    io.write("\r\n")
+    10.times do |i|
+      io.write("Line #{i + 1}!\n")
+      io.flush
+      sleep 1
+    end
+  ensure
+    io.close
+  end
+end
+
+run app
+\end{lstlisting}
+
+代码\ref{rack-fh}中，首先我们获取IO对象，然后向其输出标准HTTP头。这里我们通过Connection: close头来告知浏览器使用Keep alive的方式连接，以保证连接不被中断。接下来我们通过每一秒输出一个结果，显示完全劫持的效果。我们可以使用curl -i localhost:9292的方式来查看结果。
+
+当然，除了完全劫持，我们还可以只使用部分劫持。我们可以将一个lambda表达式赋值给rack.hijack HTTP头的方式实现这一点。这个lambda表达式将会在服务器发送完毕HTTP报头之后被调用。并且此时服务器会忽略HTTP内容，而是将客户端套接字IO传给该lambda表达式。而lambda表达式负责输出HTTP内容，并自行关闭套接字。
+
+\begin{lstlisting}[caption={Rack完全劫持}, label=rack-ph]
+# encoding: utf-8
+require 'thread'
+
+app = lambda do |env|
+  response_headers = {}
+  response_headers["Content-Type"] = "text/plain"
+  response_headers["rack.hijack"] = lambda do |io|
+    # This lambda will be called after the app server has outputted
+    # headers. Here we can output body data at will.
+    begin
+      10.times do |i|
+        io.write("Line #{i + 1}!\n")
+        io.flush
+        sleep 1
+      end
+    ensure
+      io.close
+    end
+  end
+  [200, response_headers, nil]
+end
+
+run app
+\end{lstlisting}
+
+我们通过将lambda表达式赋值给rack.hijack头从而启用了部分劫持，我们返回空的HTTP内容，因为此时服务器会忽略它。在lambda表达式中，我们向传入的IO对象输出一些数据.注意此时不再需要手动输出HTTP报头，因为服务器已经替程序发送过了报头。最后，lambda表达式在发送完数据后唯一需要做的便只是关闭这个IO对象。
+
+\section{Server Sent Events}
+SSE是HTML5新标准的一部分，该技术借鉴了Comet通信模式的思想，将其标准化，使之适用于传统的服务端-浏览器之间的通信。SSE定义了一套具体的协议，该协议规定了如何使用传统的HTTP连接实现服务器消息推送。SSE定了一个一个新的HTML元素EventSource，以及一个新的MIME类型text/event-stream，该类型表示HTTP数据报内包含的是SSE消息体。代码\ref{sse-js}演示了如何使用EventSource接收SSE消息。
+
+\begin{lstlisting}[caption={JavaScript使用EventSource的示例}, label=sse-js, language=html]
+<html>
+   <head>
+     <script type='text/javascript'>
+        var source = new EventSource('Events');
+        source.onmessage = function (event) {
+           ev = document.getElementById('events');
+           ev.innerHTML += "<br>[in] " + event.data;
+        };
+     </script>
+  </head>
+  <body>
+    <div id="events"></div>
+  </body>
+</html>
+\end{lstlisting}
+
+EventSource是客户端用于接收消息的实体类。客户端通过新建一个EventSource类，向其构造函数传入一个消息源的URL，从而建立一个消息连接。当客户端接收到新数据时，onmessage方法便会被调用，供开发者处理消息。
+
+通常，浏览器会限制和同一个服务器的最大连接数。故而，在某些情况下，如若浏览器载入的多个页面均包含EventSource实例，则有可能导致EventSource的连接被中断。在这种情况下，很快EventSource的连接数便会超过上限，从而引起异常。为了解决这个问题，通常的方法就是使用一个WebWorker对象，该对象将在底层共享同一个EventSource对象，从而减少连接数。当然，取决于浏览器自己的实现方式，可以使指向同一个URL的EventSource复用同一个连接。这种情况下，将由浏览器本身来负责管理和实现连接的共享。
+
+代码\ref{sse-body}展示了一个由浏览器发出的消息，该消息实在消息连接打开之后被发送的。其中，Accept头指明了请求数据的MIME类型是text/event-stream类型。虽然SSE标准定义了使用text/event-stream作为Sever-Sent Events的标识符，但是SSE标准同样认可其他的标志符。但是，一个符合SSE技术标准的浏览器最低限度需要支持text/even-stream才行。
+
+\begin{lstlisting}[caption={SSE消息体示例}, label=sse-body]
+REQUEST:
+GET /Events HTTP/1.1
+Host: myServer:8875
+User-Agent: Mozilla/5.0 (Windows; U; Windows NT 5.1; de-DE) 
+        AppleWebKit/532+ (KHTML, like Gecko) Version/4.0.4 
+        Safari/531.21.10
+Accept-Encoding: gzip, deflate
+Referer: http://myServer:8875/
+Accept: text/event-stream
+Last-Event-Id: 6
+Accept-Language: de-DE
+Cache-Control: no-cache
+Connection: keep-alive   
+
+
+
+RESPONSE:
+HTTP/1.1 200 OK
+Server: xLightweb/2.12-HTML5Preview6
+Content-Type: text/event-stream
+Expires: Fri, 01 Jan 1990 00:00:00 GMT
+Cache-Control: no-cache, no-store, max-age=0, must-revalidate
+Pragma: no-cache
+Connection: close
+
+: time stream
+retry: 5000
+
+id: 7
+data: Thu Mar 11 07:31:30 CET 2010
+
+id: 8
+data: Thu Mar 11 07:31:35 CET 2010
+
+[...]
+\end{lstlisting}
+
+服务器发现消息的MIME类型为text/event-stream，于是返回SSE消息。消息体首部是由注释行和配置行构成的，它们由一个空行分隔。注释以冒号开始，而配置行则是由一个域名和值构成，之间以冒号分隔。
+
+代码\ref{sse-body}同时展示了一个HTTP Response消息。为了避免缓存机制，HTTP头中必须包含Cache-Control以显式地关闭浏览器缓存功能。根据定义，SSE消息流是不能够被浏览器缓存的。在这个示例中，包含了三个事件消息。第一个消息包含了一个注释和retry的域，后两个则是包含了id和event数据两个域。data域内的值就是消息的实际数据，在上述例子中即是当前时间。后两个消息还包含了一个id域，该域用于跟踪消息流的当前进度。在上述示例中，可以看到，服务器每五秒便发送一条新的消息，如果客户端接的EventSource接收到了这条消息，onmessage回调函数便会被调用。
+
+和后两条消息比起来，第一条消息并不会触发onmessage回调函数。第一条消息也并不包含任何数据，它包含了一个注释行和retry以指明重连策略（retry域定义的重连时间是以毫秒为单位）。如若客户端接收到这条消息，EventSource就会更新本地的重连策略，并且将重连时间设置为接收到的值。重连时间在妥善处理由网络问题带来的连接中断问题中扮演者一个重要的角色。当EventSource检测到连接被中断了，那么在当过了重连时间之后，它将尝试再次可服务器之间建立新的连接。
+
+值得指出的是，在建立和SSE服务器之间连接时，可以使用Last-Event头。该HTTP头将被设置为EventSource接收到的上一条消息的Event ID。由于有这个特性，当SSE客户端可服务器重新建立连接之后，将不会重复收到之前的消息，亦不会错过之后的消息。如果服务器端实现了lastEventId特性，该机制便能够确保消息最终能被送达，而不出错。
+
+代码\ref{sse-server}展示了如何实现一个SSE服务器，该示例构建于Java HTTP库xLightweb之上：
+
+\begin{lstlisting}[caption={SSE服务器示例}, label=sse-server, language=java]
+class ServerHandler implements IHttpRequestHandler {
+  private final Timer timer = new Timer(false);
+  public void onRequest(IHttpExchange exchange) throws IOException {
+    String requestURI = exchange.getRequest().getRequestURI();
+    if (requestURI.equals("/ServerSentEventExample")) {
+      sendServerSendPage(exchange, requestURI);
+    } else if (requestURI.equals("/Events")) {
+      sendEventStream(exchange);
+    } else {
+      exchange.sendError(404);
+    }
+  }
+  private void sendServerSendPage(IHttpExchange exchange, 
+          String uri) throws IOException {
+    String page = "<html>\r\n " +
+        " <head>\r\n" +
+        "     <script type='text/javascript'>\r\n" +
+        "        var source = new EventSource('Events');\r\n" +
+        "        source.onmessage = function (event) {\r\n" +
+        "          ev = document.getElementById('events');\r\n" +
+        "          ev.innerHTML += "<br>[in] " + event.data;\r\n"+
+        "        };\r\n" +
+        "     </script>\r\n" +
+        " </head>\r\n" +
+        " <body>\r\n" +
+        "    <div id="events"></div>\r\n" +
+        " </body>\r\n" +
+        "</html>\r\n ";
+    exchange.send(new HttpResponse(200, "text/html", page));
+  }
+  private void sendEventStream(final IHttpExchange exchange) 
+          throws IOException {
+    // get the last id string
+    final String idString = exchange.getRequest().getHeader(
+            "Last-Event-Id", "0");
+    // sending the response header
+    final BodyDataSink sink = exchange.send(new 
+            HttpResponseHeader(200, "text/event-stream"));
+    TimerTask tt = new TimerTask() {
+       private int id = Integer.parseInt(idString);
+       public void run() {
+         try {
+           Event event = new Event(new Date().toString(), ++id);
+           sink.write(event.toString());
+         } catch (IOException ioe) {
+           cancel();
+           sink.destroy();
+         }
+       };
+    };
+    Event event = new Event();
+    event.setRetryMillis(5 * 1000);
+    event.setComment("time stream");
+    sink.write(event.toString());
+    timer.schedule(tt, 3000, 3000);
+  }
+}
+XHttpServer server = new XHttpServer(8875, new ServerHandler());
+server.start();
+\end{lstlisting}
+
+SSE标准推荐开发者在长时间没有消息数据发送时，发周期性地送keep-alive注释。因为像诸如代理服务器之类的应用中，代理服务器会在一段时间没有任何连接后，主动中断连接，以便于回收空闲连接、防止资源的浪费。通过不断地发送keep-alive，可以避免连接被中断掉。虽说EventSource可以自动地重新建立连接，周期性地发送keep-alive消息则可以避免不必要的重连。
+
+SSE是建立在HTTP流的基础上的。正如上面描述的，HTTP响应一直保持连接，只要服务器端处有消息产生，消息便会立刻被发送至客户端。理论上来讲，如果网络中间部件（比如HTTP代理服务器）会将部分HTTP响应缓存起来，那么便会对SSE照成较大的影响。根据现有的HTTP RFC（RFC 2616 Hypertext Transfer Protocol - HTTP/1.1）标准，并未指名部分HTTP响应必须被立刻发送。不过，大部分流行的web应用都构建于HTTP数据流的基础上，并且中间网络部件一般都会避免缓存大量数据，以节省内存。
+
+相比起其他流行的Comet协议（比如Bayeux和BOSH），SSE技术仅支持从服务器到客户端的数据推送。而诸如Bayeux之类的技术则支持双向的通信。另外Bayeux除了使用HTTP数据流之外，还使用轮询技术。和Bayeux一样，BOSH协议也提供了一个双向的协议，BOSH技术也基于轮询技术。虽然SSE比Bayeux和BOSH功能受限，SSE反而可能更加适合于实践，这是因为大量的现有应用均只需求从服务器到客户端的单向交流。更重要的是，SSE技术比起Bayeux和BOSH更加的简单容易实现。例如，开发者可以通过telnet来测试SSE的消息数据流。SSE也并不需要实现握手协议，简单地发送一个HTTP GET请求，便能够获得SSE消息数据流。重要的是，SSE将由支持HTML5技术的浏览器原生支持，而Bayeux和BOSH协议则是构建于浏览器脚本语言框架之上，这为其效率带来了巨大的优势。
+
+\section{Auto-Reload、Backend Instrumentation}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,18 @@
+\makecover
+
+
+\begin{abstract}{Ruby;  Rails;  消息总线;  SSE;  DRb}
+近年来，随着Web应用的快速发展，传统基于HTTP+HTML+JavaScript的网站开发技术在应对这些新场景时已经显出了颓势。特别是对于需要频繁和服务器交互的Web应用，传统上我们一般使用Ajax来从后台异步获取实时数据。但是该技术需要不断的向服务器请求数据，这种类似轮询的方式使得每次请求数据时都得经过“三次握手”等繁琐初始化过程，这既带来了较高的网络流量又引发了较大的处理负荷，从而影响了执行效率。
+针对Rails服务器，本文提出了一种可行的解决技术，称之为Rails消息总线。Rails消息总线技术提供了一种机制，使得浏览器能够通过和服务器建立一个长连接获取数据，这样只要服务器端产生任何数据，都能够实时地推送到浏览器端，减少了不必要的网络流量，提升了处理效率。同时，考虑到服务器后端可能有多个进程进行处理，Rails消息总线技术使用了分布式Ruby（DRb）和Rinda，使得服务器上的后台工作进程亦能够向浏览器发送数据。
+最后，Rails消息总线技术不仅仅适用于解决Web应用的难题，同时亦能被用于提升开发者效率。本文利用消息总线技术，简单地实现了Rails服务器在开发模式下代码自动重载以及后端性能评测的两套开发者工具。
+\end{abstract}
+
+
+\begin{abstractEng}{Ruby; Rails; Message Bus; SSE; DRb}
+Nowadays, the Web application has a rapid development, traditional HTTP, HTML, JavaScript is no longer suitable in those scenarios. Especially for applications that require frequent server-client interaction, we usually apply Ajax technique to retrieve real-time data synchronously from server. But Ajax needs to communicate and make requests to the server very frequently, which is something similar to the polling technique. So every time we request the data, we should go through the Three-Way handshake process. This will always lead to more network traffic and higher processing load, which has a bad impact on performance.
+In this paper, we proposed a solution to solve this problem, which is called Rails Message Bus. Rails Message Bus provides a mechanism to establish a long-term connection to the server, thus the data will be pushed to the client once the data are produced at rails server, which requires less network traffic and be more efficient. Taking into account that there may be multiple worker processes in the server's background, Rails Message Bus uses Distrubuted Ruby (DRb) and a Rinda server, which makes data pushing also available to these worker processes.
+Finally, Rails Message Bus is not only aiming at solving the problems of Web application, but also it can be used to improve developer's productivity. We've implemented the code auto-reload and back-end instrumentation feature for rails, which is based on our Message Bus technique.
+\end{abstractEng}
+
+
+\tableofcontents
