@@ -685,7 +685,7 @@ SSE是建立在HTTP流的基础上的。正如上面描述的，HTTP响应一直
 
 相比起其他流行的Comet协议（比如Bayeux和BOSH），SSE技术仅支持从服务器到客户端的数据推送。而诸如Bayeux之类的技术则支持双向的通信。另外Bayeux除了使用HTTP数据流之外，还使用轮询技术。和Bayeux一样，BOSH协议也提供了一个双向的协议，BOSH技术也基于轮询技术。虽然SSE比Bayeux和BOSH功能受限，SSE反而可能更加适合于实践，这是因为大量的现有应用均只需求从服务器到客户端的单向交流。更重要的是，SSE技术比起Bayeux和BOSH更加的简单容易实现。例如，开发者可以通过telnet来测试SSE的消息数据流。SSE也并不需要实现握手协议，简单地发送一个HTTP GET请求，便能够获得SSE消息数据流。重要的是，SSE将由支持HTML5技术的浏览器原生支持，而Bayeux和BOSH协议则是构建于浏览器脚本语言框架之上，这为其效率带来了巨大的优势。
 
-\section{Auto-Reload、Backend Instrumentation}
+%\section{Auto-Reload、Backend Instrumentation}
 
 
 
