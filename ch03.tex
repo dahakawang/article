@@ -1,5 +1,5 @@
 \chapter{系统总体设计}
-\section{目标分析}
+\section{系统总体需求分析}
 本小节主要分析了Rails消息总线项目的具体需求。本项目由三个子项目构成，Rails消息总线子项目用于提供从Rails服务器到浏览器的基础服务技术；Auto-Reload技术主要用于开发模式时自动检测源代码更改事件并通知浏览器进行刷新动作；而Backend Instrumentation技术则是通过在后台采集性能数据，并将其反馈到前端的技术。
 
 \subsection{Rails消息总线需求分析}
@@ -139,12 +139,13 @@ gem 'puma'
 
 # Enable Backend Instrumentation feature to get realtime performance data
 gem 'backendinstrument', path: '/Users/david/work_place/projects/backend_instrument', group: [:deployment]
-
 \end{lstlisting}
 
 代码\ref{backend-demo}的12行指明了如何启用Backend Instrumentation技术。通过在Gemfile里使用gem语句，开发者告知Rails框架在启动时载入backendinstrument Gem，从而使得Backend Instrumentation技术的代码被载入至内存。这样，在程序运行期间，Backend Instrumentation技术将持续收集Rials服务器的性能数据，并将其推送至所有的前台消息订阅者处。值得指出的是，这里使用一个group子句，指明了Backend Instrumentation技术仅仅在网站部署时有效。这样设计是符合一般常识的，因为开发者一般仅希望在网站正式运行时才通过Backend Instrumentation技术抓去后台运行性能数据，从而实现远程监控和管理。
 
 \section{解决方案概要}
+本小节基于上一小节对Rails消息总线技术需求的具体分析，从宏观上给出了一个解决方案概览，并且在后续子小节中对该宏观概览图的子部分的解决方案亦进行了概要性的描述。本节对系统整体解决方案的描述，将作为本文详细技术细节设计的标准，并指导后续工作的完成。
+
 \subsection{系统总体解决方案}
 Rails消息总线技术是一门允许网页服务器向浏览器客户端发送实时数据的技术，该技术作为Rails技术中的一门新的基础性技术，将始终贯穿于Rails其他部件的发展之中，亦和Rails开发人员之间关系密切。由于Rails消息总线技术的基础性，将使得该技术对任意Rails组件可见，它提供了简洁并且强大的API供上层逻辑调用。
 
@@ -171,16 +172,46 @@ SSE负责和浏览器直接通信，并且能够支持实时的向浏览器传�
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.7\textwidth]{images/overview/rack.eps}
-\caption{典型的Rails服务器栈结构}
+\caption{典型的Rack服务器栈结构}
 \label{fig-server-stack}
 \end{figure}
 
 在图\ref{fig-server-stack}中，可以看到，整个Rack技术是基于一种类似于堆栈的组织方式的。在这个服务器堆栈上，位于最顶端的是Rails服务器，其下则是Rack库代码，在之下则是各式各样的Web服务器。Rack技术的提出，主要便是为了解决开发者对代码精简的诉求和种类繁多的Web服务器接口之间的矛盾。Rack抽象出了一套基本的Web服务器接口，使其上层逻辑直接这套接口打交道。在下层，则是针对大量的不同服务器开发了为数众多的服务器适配接口。这样，使用Rack，开发者仅需要针对Rack的接口开发程序，便使得自己的程序能够兼容众多其他的服务器。
 
-图\ref{fig-server-stack}展示了一套典型的Rack
+图\ref{fig-server-stack}展示了一套典型的Rack架构下的Web服务器工作示意图。可以看到，Rack技术的上层是任何需要适配网页服务器接口的组件，在这里我们以Rails为例。Rails是一个开源的网页服务器开发框架，因此需要支持不同种类的网页服务器。为了适配不同的网页服务器，Rails同过和Rack打交道，从而使用了一套标准的抽象服务器接口。当Rails希望向浏览器客户端发送HTTP响应时，它会首先通过Rack的抽象接口，将数据传递到Rack层，接着借由Rack内置的适配器，数据将被传送至底层实际的Web服务器处。最后，Web服务器将通过和浏览器客户端之间建立的原始套接字将数据（HTTP响应包）发送至浏览器。
 
+通过以上的分析不难看出，典型的Rack架构提供了一套较为标准的数据传递路径，开发者很难对其进行定制。正是由于此，使得基于Rack的Rails技术很难凭借自身实现实时向浏览器客户端传递数据。而Rack劫持技术则是通过一种机制，使得上层的Rails能够直接通过Rack从Web服务器处将同客户端通信的原始套接字获取，尔后可以直接通过该套接字向浏览器传送数据，为实时消息推送创造了条件。
+
+对比上述典型的Rack服务器堆栈结构，基于Rack劫持技术的服务器堆栈如图\ref{fig-rack-hijack}所示：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/overview/rack_hijack.eps}
+\caption{Rack劫持技术原理示意图}
+\label{fig-rack-hijack}
+\end{figure}
+
+可以看到，基于Rack劫持技术的服务器栈和一个传统的Rack服务器栈非常类似。Rack依旧承担解耦不同服务器接口差异的工作，HTTP请求的数据流动方式也依旧是沿Rack服务器堆栈向上传递。可以说，最大的不同就是HTTP响应数据的路径了。图\ref{fig-rack-hijack}清晰地展示了此时HTTP Response是如何传递的：Rails直接从Rack获取了同浏览器连接的原始套接字，于是Rails自己构造HTTP响应报文之后，直接将数据发送给了浏览器，而没有流经其下任何一层协议栈。不难看出，通过Rack劫持技术，Rails甚至可以实现非HTTP协议的数据报。在Rails消息总线技术中，本文依旧使用了HTTP协议，但是在Rails构建HTTP响应报文其间，本技术会实时将部分报文传递给浏览器客户端，从而实现数据的实时推送。
 
 \subsection{DRb Server总体方案设计}
+
+正如上一节所分析的，由于Rails运行的环境可能是由诸多集群服务器构成，并且即使统一台物理主机上亦可能存在多个工作进程。为了使得这些后台非服务器进程能够通过服务器进程和前端的浏览器进行通信，Rails消息总线技术提供了DRb Server技术用以实现将消息传递请求委托给相应的服务器进程技术。该技术的实现概况由图\ref{fig-drb}所示。
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/overview/drb.eps}
+\caption{Drb Server原理示意图}
+\label{fig-drb}
+\end{figure}
+
+不难看出，DRb Server的设计实现主要由三大块组成。首先是DRb服务器模块，该模块负责接受来自于其他进程的请求，并且讲这个请求转发给后端的SSE Server，由该模块进行数据的发送。DRb服务器实际上是分布式Ruby（Distributed Ruby）的技术组成部分，通过DRb服务器，可以实现其他进程到该服务器所属进程的IPC（Inter-Process Call）调用。这样，位于后台工作进程的代码可以通过类似于本地调用一样的方式调用数据发送接口，而该接口会把参数和请求转发给DRb服务器，最终由位于服务器进程的DRb服务器将数据转发给浏览器客户端。
+
+但是，如果仅仅使用DRb服务器会面临一个问题。该问题源于每一个DRb服务器实际上是基于原始套接字来实现进程间过程调用机制的，因此每一个DRb服务器都需要绑定一个网络地址。按照设计，Rails数据总线技术并没有使用一个特定的端口号和地址。这样做的目的是为了使得代码的部署更具有灵活性，但却带来了后台工作进程不知道如何寻找DRb服务器的问题。为了解决这个问题，Rails数据总线技术引入了Rinda技术。该技术同样是分布式Ruby解决方案中的一员，主要用于分布式系统中的主机发现。
+
+Rinda服务器主要工作就是响应后台工作进程的连接请求，并向其提供本地注册在案的DRb服务器的网络地址和端口号。通过向Rinda服务器询问并获取这些信息，任意一个后台工作进程都能够随时连接到DRb服务器上并发送消息。这样做的好处是，使得DRb服务器不需要绑定到一个固定的地址和端口号，亦不需要服务器维护人员手动的配置地址参数，从而减少了人员工作量，同时增加了系统的灵活性。Rinda服务器起到了一个类似DNS服务器的作用，但是，其本身也需要被发现。基于同上的原因，Rinda服务器同样没有使用固定的网络地址和端口号，相反，Rinda服务器提供了一种自动发现（Auto Discovery）的机制，使得位于同一个局域网的工作进程能够发觉它的存在。该机制主要基于UDP的广播（Broadcast）机制，Rinda服务器通过监听并且接收来自于局域网内的广播消息来标识一个局域网内潜在客户。每一个后台工作进程会发送一个广播至局域网内，通过该种手段，便能够找到局域网内的Rinda服务器（如果该服务器存在的话）。当工作进程找到一个Rinda服务器后，便与其建立一个正式网络连接，并通过此链接获取该网内其他DRb服务器的基本信息。当然，同样的过程必须同时发生在DRb服务器身上。在一个DRB服务器启动并初始化完成后，它也会找到当前网内的Rinda服务器，并且向其注册自己的基本信息。值得注意的是，在同样一个局域网内，能通过Rinda服务器查询到的DRb服务器必须也是曾今向Rinda服务器注册过自己身份的DRb服务器。
+
+最后，对于后台工作进程，当其通过Rinda服务器获取了目标DRb服务器的地址和端口号之后，便能够通过分布式Ruby技术使用IPC通信机制向服务器发送请求，委托服务器向客户端发送实时消息。
+
 
 \subsection{Auto Reload总体方案设计}
 
