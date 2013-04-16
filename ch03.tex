@@ -145,7 +145,46 @@ gem 'backendinstrument', path: '/Users/david/work_place/projects/backend_instrum
 代码\ref{backend-demo}的12行指明了如何启用Backend Instrumentation技术。通过在Gemfile里使用gem语句，开发者告知Rails框架在启动时载入backendinstrument Gem，从而使得Backend Instrumentation技术的代码被载入至内存。这样，在程序运行期间，Backend Instrumentation技术将持续收集Rials服务器的性能数据，并将其推送至所有的前台消息订阅者处。值得指出的是，这里使用一个group子句，指明了Backend Instrumentation技术仅仅在网站部署时有效。这样设计是符合一般常识的，因为开发者一般仅希望在网站正式运行时才通过Backend Instrumentation技术抓去后台运行性能数据，从而实现远程监控和管理。
 
 \section{解决方案概要}
-基于上诉需求,详细描述本技术如何实现。特别是如何和Rails集成 指出本技术不仅仅依赖于对Rails库的改进,还需要笔者对其他开源库的改 进。并基于3.1的需求详细归纳出⼯工作点
+\subsection{系统总体解决方案}
+Rails消息总线技术是一门允许网页服务器向浏览器客户端发送实时数据的技术，该技术作为Rails技术中的一门新的基础性技术，将始终贯穿于Rails其他部件的发展之中，亦和Rails开发人员之间关系密切。由于Rails消息总线技术的基础性，将使得该技术对任意Rails组件可见，它提供了简洁并且强大的API供上层逻辑调用。
+
+为了阐述清楚Rails消息总线技术的大体结构，图\ref{fig-infra}中展示了Rails消息总线技术的宏观架构：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/overview/infrastructure.eps}
+\caption{基础设施宏观示意图}
+\label{fig-infra}
+\end{figure}
+
+在图\ref{fig-infra}中，可以看到，Rails消息总线技术主要涉及两方，共4大部件。在图\ref{fig-infra}的最上方是消息源，该部件负责产生消息，并借由Rails消息总线技术将 消息传递给浏览器客户端处。实际上，由于Rails消息总线技术是一门基础性技术，这里的消息源可能是由无数多种组件构成。按照目前实现计划，本文提供了两种消息源：其一是负责监控Rails工程目录下文件的变动，并将关键文件变动消息通知给浏览器客户端，这实际上是Auto-Reload技术的基础；其二则是负责对Rails服务器性能参数进行监控和收集统计，并将这些性能数据实时的传送至浏览器客户端，这实际上是Backend Instrumentation的技术基础。当然，数据源的种类不仅如此。实际上开发者还可以实现数据库的变动监控，一旦发觉数据库内的数据发生变动（比如通过Rails控制台改变），将立刻通知浏览器客户端进行刷新操作，从而即刻反映出后台数据库的变化对前端的影响。
+
+第二大部件则是一个DRb Server组件。在一个典型的网页服务器后端，为了保证服务器的可用性及性能，开发者往往会使用服务器集群，用来均摊高昂的服务器压力，增强服务器的性能表现。同时，服务器后台一般是一个高并发的环境，可能有许多非服务器的进程作为工作子进程而工作。而这些工作子进程在处理用户请求之后，很有可能需要发送实时消息至用户的浏览器。考虑到操作系统进程间天然的隔离性，由于和用户的浏览器客户端通信的实体实际上是服务器进程，因此一般来说非服务器进程往往很难直接和浏览器之间进行通信。这个限制是和Rails消息总线的设计初衷箱违背的。为了解决这个问题，Rails消息总线技术引入了DRb Server部件。该部件负责后台中服务器进程和非服务器进程之间的通信，从而使得非服务器进程能够委托服务器进程向浏览器客户端发送相应的实时消息。
+
+DRb Server不会直接和浏览器客户端通信，它会使用SSE Server模块向浏览器客户端发送消息。SSE Server的设计目标便是提供一套标准的、健壮的服务器到浏览器通信机制。它提供了两套模式，其一是Raw Streaming模式，用于直接向客户端发送原始数据，另一个是SSE Mode，用于和客户端使用HTML5 SSE标准协议进行通信，其稳定性和健壮性要优于前者。
+
+最后，为了使得整个机制能够运转正常，还需要浏览器客户端方面的支持。实际上，第四大部件严格意义上来讲并不属于Rails消息总线技术。它实际上是位于浏览器客户端中的JavaScript脚本，用于接收SSE消息，并且指导浏览器针对不同的消息产生不同的响应行为。
+
+\subsection{SSE Server总体方案设计}
+SSE负责和浏览器直接通信，并且能够支持实时的向浏览器传送数据。但是，由于Rails使用了Rack技术（一种服务器通用接口技术），使得Rails很难绕过Rack的限制，直接和浏览器客户端进行通信。不难发觉，为了实现数据能够实时的发送至浏览器客户端，传统的基于Rack技术的网页服务器响应流程已经不适用了，需要一种新的机制来实现之。幸运的是，Rack在1.5之后提出了一套新的服务器接口标准，使得开发者能够直接从Rack手中接手对客户端原始套接字的占有，从而直接操作原始套接字，实现消息的实时发送。为了了解这个技术，需要简要介绍一下经典的Rack服务器响应流程。典型的Rails服务器栈如图\ref{fig-server-stack}所示。
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/overview/rack.eps}
+\caption{典型的Rails服务器栈结构}
+\label{fig-server-stack}
+\end{figure}
+
+在图\ref{fig-server-stack}中，可以看到，整个Rack技术是基于一种类似于堆栈的组织方式的。在这个服务器堆栈上，位于最顶端的是Rails服务器，其下则是Rack库代码，在之下则是各式各样的Web服务器。Rack技术的提出，主要便是为了解决开发者对代码精简的诉求和种类繁多的Web服务器接口之间的矛盾。Rack抽象出了一套基本的Web服务器接口，使其上层逻辑直接这套接口打交道。在下层，则是针对大量的不同服务器开发了为数众多的服务器适配接口。这样，使用Rack，开发者仅需要针对Rack的接口开发程序，便使得自己的程序能够兼容众多其他的服务器。
+
+图\ref{fig-server-stack}展示了一套典型的Rack
+
+
+\subsection{DRb Server总体方案设计}
+
+\subsection{Auto Reload总体方案设计}
+
+\subsection{Backend Instrumentation总体方案设计}
 
 \section{系统逻辑结构设计}
 根据3.2的解决⽅方案归纳出各种实体类(系统静态结构)描述类之间的交互(系统动态结构)
