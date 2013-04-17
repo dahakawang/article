@@ -237,13 +237,91 @@ Backend Instrumentation技术负责收集Rails后台运行性能参数，加以�
 \centering
 \includegraphics[width=0.7\textwidth]{images/overview/backend_instrumentation.eps}
 \caption{Backend Instrumentation原理示意图}
-\label{fig-reload}
+\label{fig-back-instrumentaion}
 \end{figure}
 
 该技术结构和Auto Reload特性类似，依旧依赖于Rails消息总线技术中的DRb Server技术和SSE Server技术。在一个刷新周期内，Performance Data Collector会将收集到的性能数据通过消息总线传送至前台浏览器。浏览器接受到相应的性能数据，能够以较为直观的方式将其展示出来。Performance Data Collector的数据来源于Performance Data Queue，前者周期性地从后者处获取实时性能数据。之所以需要这个消息队列，是由于目前Rails收集性能参数的关键点较多，本系统使用这个队列，使得散落Rails各地的性能测试点产生的数据能够被集中起来，以便于统一管理和获取。
 
 \section{系统逻辑结构设计}
-根据3.2的解决⽅方案归纳出各种实体类(系统静态结构)描述类之间的交互(系统动态结构)
+为了在上一节基础上进一步阐述Rails消息总线技术各部分的实现机理，本文将在本小节中详细描述各大部件的逻辑结构和运行机制，以期能够展示出整体系统的工作流。本节首先将通过包图的形式介绍Rails消息总线技术总体上的逻辑结构，并通过时序图的方式介绍各大部件之间的交互流程。然后将对主要部件的逻辑结构和工作流程进行详细介绍。通过上述两方面的介绍，详尽描述Rails消息总线技术的逻辑层面的结构设计。
+\subsection{总体结构和工作流}
+Rails消息总线技术从逻辑上来划分，共分为下述六大模块，每个模块用一个包表示，如图\ref{fig-overall}:
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/overview/overall_logic.eps}
+\caption{Rails消息总线技术总体包图}
+\label{fig-overall}
+\end{figure}
+
+图\ref{fig-overall}展示了本项目宏观上的逻辑结构图。可以看到，Rails 消息总线技术的核心在于图\ref{fig-overall}的第二层和第三层，由这两个层次共同提供了一套面向Rails框架内部的服务器实时消息推送机制，以实现从服务器到浏览器的单向实时通信。而对于图\ref{fig-overall}的最上面一个层次，则是作为核心技术的实现示例，和Rails其他部分的依赖的技术而存在的。这一层分别实现了Auto-Reload技术和Backend Instrumentation技术，并且依赖于下面的核心层将相应数据发送至了浏览器客户端。
+
+由上而下这些模块分别的工作是：Backend Instrumentation模块，获取服务器后台实时性能数据，并将该数据实时传递至前端浏览器；Auto Reload模块，监控Rails工程目录文件变动，并通知浏览器刷新页面；DRb模块，负责服务器后端进程间通信，通过远程过程调用响应后台进程的请求；Rinda模块，负责接收DRb服务器的注册信息，并向客户提供DRb服务器的地址及端口号，同时提供服务器自动发现机制；SSE模块，负责实现HTML5 中的SSE协议，向浏览器客户端发送SSE消息；Live Streaming模块，负责劫持Rack原始套接字，提供向浏览器输出实时数据的可能性。
+
+为了清楚的描述这些部件的动态行为，以及它们之间是如何交互的，图\ref{fig-overall-timing}将以时序图的方式展示之：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{images/overview/overall_timing.eps}
+\caption{Rails消息总线技术各模块交互时序图}
+\label{fig-overall-timing}
+\end{figure}
+
+可以看到，整个序列当中，任何事件的发起者都是Auto Reload模块和Backend Instrumentation模块了。在这两个模块初始化的的时候，他们都会向本地局域网中发送消息，以寻找本地局域网中的Rinda服务器，当其找到Rinda服务器之后，便会向其查询本地网络中的RDb服务器（这里省去了DRb服务器向Rinda注册自身的过程），这时候便能够通过Rinda返回的网络地址向DRb服务器发送请求了。
+
+接下来，若Auto Reload触发一个文件系统节点变动的消息，或是Backend Instrumentation达到一个新的采样时间点时，它们将会组织信息，并将统一格式的消息发送给DRb服务器。这时候，DRb服务器接受到来自于其他进程的远程过程调用请求，作为响应，它将会把作为参数的具体消息内容传送给SSE模块，通过其传送给浏览器客户端。
+
+当SSE接受到请求之后，它将把统一的消息格式拆封，同时将消息体中的具体信息和数据提取出来，并组件新的SSE消息结构。根据当前和浏览器客户端的连接情况，SSE模块会设置SSE消息体的控制参数（例如消息序列号、重连机制等）。当SSE消息体构建成功之后，SSE模块将通知Live Streaming模块准备数据的传送，后者在接收到SSE消息体之后，将其序列化成字节流，并通过同浏览器客户端之间的原始套接字将数据发送至浏览器处。当然，这里依旧省略了Live Streaming模块劫持Rack原始套接字的过程。
+
+以上过程，便是Rails消息总线技术的一个典型的流程，通过对这个过程的描述，反应了本项目各个模块之间具体的职责和交互方式，下面将就每个具体模块进行介绍。
+
+\subsection{DRb和Rinda模块的逻辑结构}
+DRb和Rinda模块主要负责将非服务器进程的数据传输请求委托给服务器进程，其主要包括如下几个模块：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/overview/drb_rinda.eps}
+\caption{DRb及Rinda模块逻辑结构图}
+\label{fig-drb-rinda}
+\end{figure}
+
+图\ref{fig-drb-rinda}主要包含七大模块，其分别的作用如下：MessageServer作为DRb技术的客户端，客户进程通过该模块连接DRb服务器，并且发起以此远程过程调用；DiscoverableServer实际上是一个Rinda服务器，通过它可以注册DRb服务器的信息，并且告知客户端其查询的DRb服务器的地址。DRbServer则是具体的响应远程过程调用的服务器，它部署在服务器进程中，并且帮助客户在其所在进程中执行远程代码；ServiceFactory是作为DRb技术的FrontObject的对象，它实际上是一个工厂，客户端通过它获取该服务器提供的各种远程服务；ServerControlService是ServiceFactory工厂提供的远程服务之一，它的主要目的是给客户端提供一个接口，使得其能够远程控制当前DRb（暂停、关闭等）；MessageService是ServiceFactory工厂提供的另一个远程服务，它的提供了发送消息的服务，客户端可以通过该服务向浏览器发送实时消息。
+
+图\ref{fig-drb-rinda-timing}展示了这些类是如何交互的：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{images/overview/drb_rinda_timing.eps}
+\caption{DRb及Rinda模块交互时序图}
+\label{fig-drb-rinda-timing}
+\end{figure}
+
+可以看到，在整个机制流程中，MessageServer是负责驻留在客户端进程，发现DRb服务器，并且向其发送消息。它是客户端向DRB服务器通信的总接口。在初始化的时期，MessageServer将会向本地局域网发送一条广播消息，以寻找本地局域网络中的Rinda服务器。在本系统中，Rinda服务器是由DiscoverableServer模块来实现的，当DiscoverableServer接收到该条消息之后，便会告知MessageServer自己的存在。MessageServer发现DiscoverableServer之后，便开始向其查询本地存在的DRb服务器，这时候DiscoverableServer便会将之前注册在案的DRb服务器地址告知于MessageServer。
+
+MessageServer在获取了DRb服务器的地址后，便会尝试连接该服务器。如果成功，MessageServer将会尝试从DRb服务器处获取一个前端对象（Front Object）。在本系统中，DRb服务器是由DRbServer模块实现的，作为响应，DRbServer将会向MessageServer返回一个ServiceFactory对象。ServiceFactory是作为一个服务的统一接口存在的，它会给客户端返回其请求的服务接口。MessageServer可以请求一个ServerControlService服务对象，通过其控制该台DRb服务器的运行状态，亦可以请求一个MessageService服务对象，通过其向DRb服务器发送实时消息。
+
+在MessageServer获得任何一个服务对象之后，便可以通过该对象向服务发送请求了。ServerControlService服务可以接受一个控制命令，用以停止当前DRb服务器的运行，而MessageService提供了一个发送消息的接口，客户端可以通过该接口发送一条消息，该消息将被MessageService打包发送给SSE模块，从而最终实时地发送给浏览器客户端。
+
+\subsection{SSE模块的逻辑结构}
+
+\subsection{Live Streaming模块的逻辑结构}
+
+\subsection{Auto Reload模块的逻辑结构}
+
+\subsection{Backend Instrumentation模块的逻辑结构}
 
 \section{系统物理结构设计}
 本系统开发部署环境(主要是软件环境)本系统得部署图(哪⼀一部分运⾏行在哪⾥里?)
+
+
+
+
+
+
+
+
+
+
+
+
+
