@@ -303,8 +303,43 @@ MessageServer在获取了DRb服务器的地址后，便会尝试连接该服务�
 在MessageServer获得任何一个服务对象之后，便可以通过该对象向服务发送请求了。ServerControlService服务可以接受一个控制命令，用以停止当前DRb服务器的运行，而MessageService提供了一个发送消息的接口，客户端可以通过该接口发送一条消息，该消息将被MessageService打包发送给SSE模块，从而最终实时地发送给浏览器客户端。
 
 \subsection{SSE模块的逻辑结构}
+SSE模块主要负责实现HTML5的SSE标准协议，为Rails上层部件提供标准SSE接口支持。该模块的结构如图\ref{fig-sse-module}所示：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.6\textwidth]{images/overview/sse_module.eps}
+\caption{SSE模块逻辑结构图}
+\label{fig-sse-module}
+\end{figure}
+
+在图\ref{fig-sse-module}中，最右边的模块属于Rails现有的模块，而本技术的SSE模块则是直接作用于Rails的ActionController模块。Rails的设计理念中大量推崇了所谓MVC设计模式，通过控制器来从模型处获取实际数据，并将得到的数据传送给视图，再从视图处得到界面展示信息，最终向用户显示出界面。而ActionController模块则是Rails实现的MVC框架中其控制器作用的部件。传统上，每当一个新的页面请求发至相应的控制器时，ActionController会和ActionView和ActiveRecord打交道，并生成数据和展示视图返回给客户端。但是，在应用了Rails消息总线技术后，ActionController将直接把请求转发给SSE模块，并委托SSE模块处理客户端请求。这样，通过从ActionController夺取对浏览器客户端自由发送数据的权限，SSE模块实现了实时的消息发送。
+
+图\ref{fig-sse-module}的右边则是组成SSE模块的三大子模块。它们分别的作用是：ServerSentEvents Module，负责提供统一接口，并且提供API共开发者调用；ServerSentEvent是封装SSE消息的一个对象，开发者需要在其初始化时提供欲传递的数据，并将其交给公共接口以发送至客户端，ServerSentEvent同时也是本模块内部对SSE数据结构的表示方式；SseClient则是整个模块中真正负责实现SSE逻辑的模块,该模块负责接收待发送的ServerSentEvent消息结构，生成标准SSE数据流表示方法，生成消息ID等诸多任务。
+
+为了更加清晰地展示这些模块之间的动态行为，图\ref{fig-sse-module-timing1}提供了其运行时的时序图：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/overview/sse_module_timing1.eps}
+\caption{浏览器连接过程时序图}
+\label{fig-sse-module-timing1}
+\end{figure}
+
+可以看到，首先浏览器向服务器请求一个网页数据，经由Rails的路由机制，该请求被转发给了相应的控制器。此时，控制器不会像传统Rails程序一样调用视图和模型的相应代码，而是将该请求的处理委托给SseClient处理，SseClient接收到请求后，会开始长等待，直到其他模块告知需要传送消息给客户端时方才激活。此时，控制器和浏览器客户端再无关系，而是直接由SseClient以服务器的名义和客户端通信。另外，为了了解发送消息时的过程，图\ref{fig-sse-module-timing2}展示了发送消息的时序逻辑：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{images/overview/sse_module_timing2.eps}
+\caption{SSE消息发送过程时序图}
+\label{fig-sse-module-timing2}
+\end{figure}
+
+在图\ref{fig-sse-module-timing2}中，任何一个SSE消息的发起过程都源于本系统之外的某个组件的请求。当某个组件需要向客户端发送消息时，它首先将构建一个ServerSentEvent数据结构，并将消息数据封装于其中。这之后，通过向ServerSentEvents Module传送这个ServerSentEvent对象，使得ServerSentEvents Module发送该条SSE消息。ServerSentEvents Module拿到一个ServerSentEvents之后，会将其直接传送给SseClient。SseClient会对该条消息进行处理（添加序列ID、重连命令等），然后序列化成字节流，最后将该串字节流发送至浏览器客户端处，从而实现了实时SSE消息的发送。
+
 
 \subsection{Live Streaming模块的逻辑结构}
+
+
 
 \subsection{Auto Reload模块的逻辑结构}
 
