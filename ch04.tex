@@ -108,11 +108,11 @@ MessageServer模块负责实现DRb服务器，和Rinda服务器，使得非服�
 
 MessageServer使用DRb技术实现远程过程调用，利用Rinda技术实现服务器的自动发现。DRbServer则是封装了一个用于实现DRb协议的实体类，其接口作用分别如下所示：
 
-initialize是DRbServer类的构造函数，负责构造和舒适化DRbServer类。start\_server负责开启DRb服务器，他的调用将使得DRbServer开始监听本地端口，从而相应远方请求。该接口同时接受一个可选参数，该参数是一个哈希表类型，用acl:作为其键，其值表示一个ACL（Access Control List）列表。该列表的提供主要是基于安全方面的考量，该列表制定了一系列规则，指明了哪些远程主机能够访问本地DRb服务哪些将被拒绝。stop\_server接口则是负责停止DRbServer工作，从而使得本机不再相应远程请求。wait\_server则使执行线程被挂起，等待DRb服务器执行完成，直到其停止执行，方才返回。
+initialize是DRbServer类的构造函数，负责构造和初始化DRbServer类。start\_server负责开启DRb服务器，他的调用将使得DRbServer开始监听本地端口，从而相应远方请求。该接口同时接受一个可选参数，该参数是一个哈希表类型，用acl:作为其键，其值表示一个ACL（Access Control List）列表。该列表的提供主要是基于安全方面的考量，该列表制定了一系列规则，指明了哪些远程主机能够访问本地DRb服务哪些将被拒绝。stop\_server接口则是负责停止DRbServer工作，从而使得本机不再相应远程请求。wait\_server则使执行线程被挂起，等待DRb服务器执行完成，直到其停止执行，方才返回。
 
 main接口主要用作调试，它使得DRbServer拥有一个入口函数，从而使得能够简单的引用改代码从而使得DRb服务器能够执行。set\_server\_uri和get\_server\_uri用于设置和获取DRb服务器的URI。值得指出的是，set\_server\_uri需在DRbServer实际运行之前得以执行，这样DRbServer开启之后便会监听指定的端口，而后者则需要在DRbServer运行之后执行，用于获取当前DRbServer监听的端口。最后，extract\_acl和extract\_acl\_list则与ACL有关，主要用于控制和提取参数中的ACL信息。
 
-DiscoverableServer正如其名所暗示的，负责自动发现服务器。这项机制通过Rinda技术得以实现。由于DiscoverableServer继承于DRbServer，因此大部分的行为和接口语义都和后者一致。除了接口startup_rinda_server，他是DiscoverableServer才有的，负责开启一个Rinda服务器，从而支持服务器自动发现。
+DiscoverableServer正如其名所暗示的，负责自动发现服务器。这项机制通过Rinda技术得以实现。由于DiscoverableServer继承于DRbServer，因此大部分的行为和接口语义都和后者一致。除了接口startup\_rinda\_server，他是DiscoverableServer才有的，负责开启一个Rinda服务器，从而支持服务器自动发现。
 
 上面两个类为MessageServer提供了基础的实现技术，为了使得这两个接口更加便于使用，本技术还提供了一套统一的接口，该接口可以被DRb服务器、Rinda以及DRb客户端同时使用。其设计类图见图\ref{fig-msg-server-class}
 
@@ -123,12 +123,106 @@ DiscoverableServer正如其名所暗示的，负责自动发现服务器。这�
 \label{fig-msg-server-class}
 \end{figure}
 
+在图\ref{fig-msg-server-class}中，initialize是DRbServer类的构造函数，负责构造和初始化MessageServer类。start\_server负责开启一个DRb服务器和Rinda服务器，该接口接收一个参数，该参数提供了额外的配置信息。该参数是一个哈希表，其中acl的键表明了该服务器的ACL规则，deploy的表明了本服务器的部署方式。就目前而言，MessageServer提供了两种方式，一种是InProc，若使用该种方式，则DRb和Rinda服务器就直接运行在当前进程之中；另一种是StandAlone，若使用这种方式，则DRb和Rinda服务器将运行在一个新建的子进程之中，从而能够很好的和父进程隔离起来，避免一些安全性和稳定性的问题。虽然启动服务器时需要区分InProc和StandAlone两种配置方式，但是在使用接口stop\_server接口停止服务器时则不需要作此区分，该接口会自动针对不同种类服务器作出相应行为，以停止其运行。
 
+一般来说，只能有一个DRb和Rinda服务器。对于客户端，虽然给予API统一性的考虑依然使用MessageServer类，但是这些客户端却不能使用star\_server，因为其只能作为DRb服务器的消费者。因此，为了首先找到可用的DRb服务器，他们需要首先调用find\_server接口，该接口会自动使用Rinda技术找到服务器，这之后才能够向MessageServer发送请求。由于服务器可能随时关闭，因此MessageServer同样提供了一套接口用于查询服务器运行状态。started?接口返回一个布尔值，改值指明了当前是否有DRb服务器，如果有，该服务器是否正在运行，能否服务等问题。
+
+send\_message是最为重要的接口，他是MessageServer的服务接口。MessageServer本来旨在让服务器进程代理非服务器进程的消息传递任务，而这个接口便是非服务器进程请求的通道。该接口接收两个参数，其一是待发送的消息，另外则是一个标记，用于开启或者关闭在控制台写调试信息这一行为。值得指出的是，消息不仅仅只是字串，消息能够使任意Ruby对象，这样能够大大增加程序的灵活性，降低对特定类型的耦合。
+
+最后start\_local\_server和start\_remote\_server两个接口属于辅助接口，其分别对应InProc和StandAlone两种配置的服务器。他们这两个接口一般是不需要用户主动调用的。
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/detail/factory_class.eps}
+\caption{DRb服务工厂类图}
+\label{fig-factory-class}
+\end{figure}
+
+图\ref{fig-factory-class}展示了DRb服务器工厂类的结构。根据DRb协议内容，每个DRb服务器需要有一个前置对象（Front Object），于是本系统使用一个类工厂作为该前置对象。客户通过DRb API直接获取工厂对象，再通过工厂对象获取其他对象，从而实现远程执行逻辑。目前，工厂提供了两个类，一个负责远程控制DRb服务器，另一个负责支持远程消息传递服务。
+
+对于ServiceFactory类来说，其使用了单例设计模式。通过getInstance的调用，可以获取这个实例。get\_server\_control\_service接口则是用于获取一个ServerControlService对象，从而控制远程DRb服务器。get\_message\_service接口则是用于获取一个MessageService对象，从而能够通过服务器进程向浏览器发送消息。
+
+对于ServerControlService类来说，亦使用了单例设计模式，因此getInstance同样用于获取一个实例。stop\_server则供远程调用，以终止DRb服务器的运行。MessageService类的getInstance用于获取单例实例。其send\_message接口则用于远程方向本地请求发送消息，本地服务器接收到请求后，便会通知相应前端，向浏览器发送消息。为了知道通过哪个前端控制器向客户端发送数据，相应的控制器需要首先调用egister\_reload\_handler接口，从而将自己注册给本系统，使得本系统能够通知其发送消息。
 
 \subsection{工作流程}
+图\ref{fig-msg-process}展示了MessageServer的基本工作流程：
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.3\textwidth]{images/detail/message_server_process.eps}
+\caption{MessageServer工作流}
+\label{fig-msg-process}
+\end{figure}
+
+在系统初始化时，首先需要发送一个广播的数据包，这个广播报文将被Rinda服务器收到，并告知自己的存在。系统接收到Rinda服务器的存在消息之后，便会向Rinda服务器请求本地DRb服务器的URI地址。Rinda服务器接收到该请求之后，便会将之前向自己注册的DRb服务器的地址传送给系统。系统接收到URI数据之后，便会尝试连接该URI，从而和DRb服务器建立了连接。在和DRb服务器建立连接之后，系统将向其请求一个前端对象。此时，系统获得的前端对象实际上是一个工厂，因此系统将向该工厂请求其他的服务对象。目前来说，有两个对象，一个负责控制DRb服务器的运行，另一个负责发送实时消息。系统获得服务对象之后，便通过相应服务对象的接口，实现相应的功能。
+
+
 \subsection{关键代码}
+MessageServer的主要逻辑如代码\ref{msg-server-core}所示：
+\begin{lstlisting}[caption={MessageServer核心代码展示}, label=msg-server-core]
+class MessageServer
+  include Singleton
+
+  def start_server(options = {})
+    @is_owner_process = true
+
+    method = extract_deploy_method(options)
+    if method == :InProc
+      @is_in_proc_server = true
+      start_local_server(options)
+    else #method == :StandAlone
+      @is_in_proc_server = false
+      start_remote_server(options)
+    end
+  end
+
+  def stop_server
+    raise RuntimeError, 'call find_server first' unless @server_uri
+
+    services = DRbObject.new_with_uri @server_uri
+    controller = services.get_server_control_service
+    controller.stop_server
+
+    reset_params_when_stop
+  end
+
+  def find_server
+    if !(@is_owner_process && @is_in_proc_server)
+      DRb.start_service 
+    end
+
+    finger = Rinda::RingFinger.new nil, DiscoverableServer::DEFAULT_PORT
+    ring_server = finger.lookup_ring_any
+    @server_uri = ring_server.__drburi
+  end
+
+  def send_message(message, debug = false)
+    raise RuntimeError, 'call find_server first' unless @server_uri
+
+    services = DRbObject.new_with_uri @server_uri
+    
+    msg = services.get_message_service
+    msg.send_message(message, debug)
+  end
+
+  def started?
+    server_exist = false
+    begin
+      @soc = UDPSocket.open
+      @soc.bind("", DiscoverableServer::DEFAULT_PORT)
+      @soc.close
+    rescue Errno::EADDRINUSE
+      server_exist = true
+    end
+
+    server_exist
+  end
+end
+\end{lstlisting}
+
+
 \section{ActionControler::Live设计}
 \subsection{接口设计}
+ActionControler::Live是负责Rails消息总线技术中负责底层数据实时传输的类，该类使用Rack劫持技术，使得上层逻辑能够绕开服务器对套接字的管理，从而向套接字任意的发送数据。该类的主要结构如下图所示：
 \subsection{工作流程}
 \subsection{关键代码}
 \section{ActionControler::ServerSentEvents设计}
