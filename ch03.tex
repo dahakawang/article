@@ -338,18 +338,61 @@ SSE模块主要负责实现HTML5的SSE标准协议，为Rails上层部件提供�
 
 
 \subsection{Live Streaming模块的逻辑结构}
+Live Streaming模块主要负责利用Rack劫持技术获取客户端原始套接字，从而实现向客户端的实时数据传输。该模块的主要结构如图\ref{fig-live}所示：
 
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/overview/live_streaming.eps}
+\caption{Live Streaming模块逻辑结构图}
+\label{fig-live}
+\end{figure}
+
+图\ref{fig-live}展示了Live Streaming模块的各大部件。其中ActionController是Rails实现MVC模式中控制器的模块，该模块属于Rails既有模块。可以看到，Live Streaming模块主要是有四大部件构成的，它们分别的功能如下：Live模块负责覆盖ActionController原有行为，特别是其用于处理客户端请求的process方法，Live提供了一套基于Rack劫持技术的解决方案，以使得数据能够绕过Rails和Rack被实时的传送到浏览器客户端；Response对象用于封装一个HTTP响应，但由于此时HTTP响应已经不再是预先构造好再传送，该对象替换了Rails原有Response实现，提供了实时的构建和即时传输数据功能；Buffer用于提供一个缓冲区，该缓冲区用于提高IO效率，并且更是为了适配Rails原有接口；WEBrick Handler用于实现WEBRick服务器的Rack劫持技术，由于Rack劫持技术属于一套标准，目前支持该标准的浏览器数量尚有限，因此为了本项目能够顺利实施，这里针对Ruby内置的服务器WEBrick自行实现了Rack劫持标准，使得本项目能够在实践中被应用。
+
+Live模块通过以下方法实现了数据的实时传递：当浏览器客户端向Rails服务器获取数据时，控制器的process负责处理并且响应这一请求，Live模块覆盖了控制器的process方法，因此获取了响应客户端的主动权。这之后，Live使用本模块实现版本的Response对象并将其作为参数传递给下层的Rack，同时根据Rack劫持协议告知Rack使用该对象进行响应。Rack使用WEBRick Handler响应客户端，由于此时Response是本模块实现的，因此这里使得Rack所在线程被阻塞，直到上层向Response写入数据或者由于数据流被关闭产生了异常。可以看到，控制和客户端通信的原始套接字所在的线程总是会阻塞，但当有数据写入时，该线程又会运行并将新的数据发送给客户端，由此实现了数据的实时传递。
 
 
 \subsection{Auto Reload模块的逻辑结构}
+Auto Reload负责检测Rails工程目录下的文件变动，并通知浏览器该项变动。其主要结构如图\ref{fig-reload-struct}所示：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/overview/auto_reload_struct.eps}
+\caption{Auto Reload模块逻辑结构图}
+\label{fig-reload-struct}
+\end{figure}
+
+不难看到，Auto Reload模块主要是由三个部分构成的，这三个部分的作用分别如是：Auto Reload Railtie是一个Railtie实例，它作为一个Railtie，使得整个Auto Reload模块能够作为Rails的插件形式被载入和初始化。在初始化时，该模块负责判断当前环境，如果发觉是服务器环境，则载入相应代码逻辑并初始化其状态，若发觉是控制台环境，则避免载入代码逻辑；FileUpdateChecker则是负责监视Rails工程目录文件系统变动的模块，该模块会不断获取监控目录下的文件集合，并且与历史集合进行比对，从而发觉前后文件节点的变动，该方法具有很高的可移植性，适用于OS X、Linux以及Windows等平台；Auto Reload Controller则是负责发送文件变动消息的接口，它是负责Rails服务器和浏览器客户端通信的总接口，浏览器通过该模块接收SSE消息，服务器通过该模块发送相应文件变动消息。
+
+在Rails工程初始化时，Auto Reload Railtie首先将自己注册到Gemfile里，则会在其后被Rails自动载入，并调用其初始化接口进行初始化工作。Auto Reload Railtie初始化的第一步是判断自己是否运行在Rails服务器中，只有运行在服务器模式下，Auto Reload Railtie方才会载入Auto Reload模块的其他组件，并进行相应的初始化工作。当Auto Reload Railtie完成初始化后，整个Auto Reload系统便宣告正常工作。这时候FileUpdateChecker将开始监视Rails工程目录，通过比对前后文件树的变化，FileUpdateChecker能够查知文件系统的任何变化。一旦FileUpdateChecker发现了文件系统有所变动，它便会通过DRb告知服务器这一变动，DRb则会通知SSE模块将这一消息传递给浏览器客户端。这之后，Auto Reload Controller作为与浏览器客户端通信的代表，将会将这一消息序列化为字节流，并且实时地传递给前端浏览器。至此，浏览器便接收到来自于后端的文件系统变动消息，并作出相应响应（一般来说是刷新整个页面）。
 
 \subsection{Backend Instrumentation模块的逻辑结构}
+Backend Instrumentation负责实时地收集Rails服务器性能数据，并将该数据实时地传送给浏览器。其主要结构如图\ref{fig-instrument-struct}所示：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/overview/instrument_struct.eps}
+\caption{Backend Instrumentation模块逻辑结构图}
+\label{fig-instrument-struct}
+\end{figure}
+
+不难看到，Backend Instrumentation模块主要是由三个部分构成的，这三个部分的作用分别如是：Instrument Railtie是一个Railtie实例，它作为一个Railtie，使得整个Backend Instrumentation模块能够作为Rails的插件形式被载入和初始化。在初始化时，该模块负责判断当前环境，如果发觉是服务器环境，则载入相应代码逻辑并初始化其状态，若发觉是控制台环境，则避免载入代码逻辑；Statistic Collector则是负责实时收集Rails服务器端的性能数据（包括CPU占用率和内存使用率等），并将这些数据发送给前端浏览器；Backend Instrumentation Controller则是负责发送性能数据的接口，它是负责Rails服务器和浏览器客户端通信的总接口，浏览器通过该模块接收SSE消息，服务器通过该模块发送相应性能实时数据。
+
+在Rails工程初始化时，Instrument Railtie首先将自己注册到Gemfile里，则会在其后被Rails自动载入，并调用其初始化接口进行初始化工作。Instrument Railtie初始化的第一步是判断自己是否运行在Rails服务器中，只有运行在服务器模式下，Instrument Railtie方才会载入Backend Instrumentation模块的其他组件，并进行相应的初始化工作。当Instrument Railtie完成初始化后，整个Backend Instrumentation系统便宣告正常工作。这时候Statistic Collector将开始收集服务器性能数据，按照预先设定好的采样时间（1秒），Statistic Collector将会对服务器主机的性能参数进行评估。Statistic Collector完成评估后会生成代表评估结果的性能参数，然后便会通过DRb告知服务器传送这一数据，DRb则会通知SSE模块将这一消息传递给浏览器客户端。这之后，Instrument Controller作为与浏览器客户端通信的代表，将会将这一消息序列化为字节流，并且实时地传递给前端浏览器。至此，浏览器便接收到来自于后端的实时性能数据，并作对这些数据加以利用（比如基于网页的管理终端显示实时图表等）。
+
+
 
 \section{系统物理结构设计}
-本系统开发部署环境(主要是软件环境)本系统得部署图(哪⼀一部分运⾏行在哪⾥里?)
+为了更加清楚地展示整个系统运行时的物理结构，图\ref{fig-physic}展示了整体结构：
 
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/overview/physic_logic.eps}
+\caption{系统整体物理结构示意图}
+\label{fig-physic}
+\end{figure}
 
-
+首先整个系统总体上是在三大物理运行实体中运行的，其中浏览器这一边是指用户使用的主机浏览器，本系统负责订阅SSE消息的模块驻留在该物理主机上，并且本项目开发的示例网页同样运行在该主机上。在服务器后端，本系统区分了服务器进程和非服务器进程，服务器进程往往将后台工作交予非服务器进程执行，但后者却难以同浏览器通信，这是区分这两个物理实体的原因。在本系统中，非服务器进程配备DRb客户端代码负责和服务器进程进行跨进程通信，并且本系统的文件系统监视模块驻留在非服务器进程之中。对于服务器进程，首先DRb服务器运行于其上，作为响应非服务器进程的模块，它负责在本地执行委托任务。另外的SSE和Live Streaming模块则是负责想浏览器传送实时数据和SSE消息，Backend Instrumentation负责收集实时性能数据，他们都是驻留在服务器进程中。
 
 
 
