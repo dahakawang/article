@@ -46,7 +46,7 @@
 	<key>Creator</key>
 	<string>David Wang</string>
 	<key>DisplayScale</key>
-	<string>1 0/72 in = 1 0/72 in</string>
+	<string>1 0/72 in = 1.0000 in</string>
 	<key>GraphDocumentVersion</key>
 	<integer>8</integer>
 	<key>GraphicsList</key>
@@ -274,7 +274,7 @@
 			</dict>
 		</array>
 		<key>Frame</key>
-		<string>{{8, -51}, {710, 742}}</string>
+		<string>{{8, 4}, {710, 742}}</string>
 		<key>ListView</key>
 		<true/>
 		<key>OutlineWidth</key>

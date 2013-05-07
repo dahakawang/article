@@ -42,7 +42,7 @@
 	<key>ColumnSpacing</key>
 	<real>36</real>
 	<key>CreationDate</key>
-	<string>2013-05-05 12:40:20 +0000</string>
+	<string>2013-05-06 02:27:00 +0000</string>
 	<key>Creator</key>
 	<string>David Wang</string>
 	<key>DisplayScale</key>
@@ -58,7 +58,7 @@
 			<array>
 				<dict>
 					<key>Bounds</key>
-					<string>{{155, 84}, {387, 13}}</string>
+					<string>{{47, 149}, {387, 14}}</string>
 					<key>Class</key>
 					<string>ShapedGraphic</string>
 					<key>FitText</key>
@@ -81,11 +81,11 @@
 					<dict>
 						<key>Text</key>
 						<string>{\rtf1\ansi\ansicpg1252\cocoartf1187\cocoasubrtf370
-\cocoascreenfonts1{\fonttbl\f0\fnil\fcharset134 STHeitiSC-Light;}
+\cocoascreenfonts1{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
 {\colortbl;\red255\green255\blue255;}
 \pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\qc
 
-\f0\b\fs24 \cf0 Response}</string>
+\f0\b\fs24 \cf0 SseClient}</string>
 						<key>VerticalPad</key>
 						<integer>0</integer>
 					</dict>
@@ -94,7 +94,7 @@
 				</dict>
 				<dict>
 					<key>Bounds</key>
-					<string>{{155, 97}, {387, 70}}</string>
+					<string>{{47, 163}, {387, 98}}</string>
 					<key>Class</key>
 					<string>ShapedGraphic</string>
 					<key>FitText</key>
@@ -123,11 +123,13 @@
 {\colortbl;\red255\green255\blue255;}
 \pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720
 
-\f0\fs24 \cf0 + commit!() : void\
-+ to_a() : void\
-+ build_buffer(response, body): void\
-+ merge_default_headers(original, default) : void\
-+ handle_conditional_get!() : void}</string>
+\f0\fs24 \cf0 + initialize(opts = \{\}) : void\
++ subscribe(response) : void\
++ send_sse(sse) : void\
++ send_sse_hash(sse_hash) : void\
++ start_serve() : void\
++ stream_sse_payload(payload) : void\
++ convert_payload_to_message(payload) : string}</string>
 						<key>VerticalPad</key>
 						<integer>0</integer>
 					</dict>
@@ -192,7 +194,7 @@
 	<key>MasterSheets</key>
 	<array/>
 	<key>ModificationDate</key>
-	<string>2013-05-05 12:49:49 +0000</string>
+	<string>2013-05-06 02:29:15 +0000</string>
 	<key>Modifier</key>
 	<string>David Wang</string>
 	<key>NotesVisible</key>
@@ -273,7 +275,7 @@
 			</dict>
 		</array>
 		<key>Frame</key>
-		<string>{{92, -66}, {710, 742}}</string>
+		<string>{{-170, -80}, {710, 742}}</string>
 		<key>ListView</key>
 		<true/>
 		<key>OutlineWidth</key>
@@ -287,7 +289,7 @@
 		<key>SidebarWidth</key>
 		<integer>120</integer>
 		<key>VisibleRegion</key>
-		<string>{{11, 0}, {561, 588}}</string>
+		<string>{{0, 0}, {561, 588}}</string>
 		<key>Zoom</key>
 		<real>1</real>
 		<key>ZoomValues</key>
