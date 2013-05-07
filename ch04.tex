@@ -428,10 +428,94 @@ end
 
 \section{MessageBus及Instrument Gem设计}
 \subsection{接口设计}
+MessageBus Gem是Rails消息总线技术中负责初始化Auto Reload模块的功能，并提供以Railtie的形式的初始化插件。Instrument Gem则是本系统中负责提供后台性能数据评估和收集的模块，该模块同时提供了相应的初始化功能，并且同样以Railtie的形式将其插件化。这两个类的主要类结构如下图所示：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/detail/autoload_class.eps}
+\caption{MessageBus Gem对象类图}
+\label{fig-autoload-class}
+\end{figure}
+
+可以看到，MessageBus Gem主要是由四个接口构成的。首先是initializer接口，该结构并非其构造函数或是类初始化接口，而是作为Railtie整体框架下的一个回调函数。因为MessageBus Gem使用了Railtie技术，作为Railtie初始化进程，在整个Rails初始化时会依次调用所有Railtie的的初始化回调方法，则此时MessageBus Gem相应方法将被调用，从而实现该模块的初始化。self.server\_started？接口返回一个布尔值，该值指出目前DRb服务器是否开启。self.find\_server则是负责调用底层代码，实现自动发现本地的DRb服务器的逻辑。self.setup\_filesystem\_monitor则是负责开启FileUpdateChecker模块，使之开始监控Rails工程目录，并注册相应回调函数。
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/detail/instrument_class.eps}
+\caption{Instrument Gem对象类图}
+\label{fig-instrument-class}
+\end{figure}
+
+可以看到，Instrument Gem主要是由两个接口构成的。首先是initializer接口，该结构并非其构造函数或是类初始化接口，而是作为Railtie整体框架下的一个回调函数。因为Instrument Gem同样使用了Railtie技术，作为Railtie初始化进程，在整个Rails初始化时会依次调用所有Railtie的的初始化回调方法，则此时Instrument Gem相应方法将被调用，从而实现该模块的初始化。self.register\_handler则是负责注册一个控制器，该控制器会在本模块收集到性能数据后作为目标将数据发送之。
+
 \subsection{工作流程}
+本模块的主要工作流程如图\ref{fig-gem-process}所示：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.25\textwidth]{images/detail/gem_process.eps}
+\caption{工作流程}
+\label{fig-gem-process}
+\end{figure}
+
+在初始化开始的时候，本模块首先会建立相应的控制器，并将其初始化到正确状态。接着，将会新建一个线程，并将任务委托给子线程进行。接下来将会判断当前执行环境，如若是Rails控制台的话，将会自动寻找现已存在的消息总线服务器，接着初始化过程结束；但如果是Rails服务器环境，则会首先建立一个新的消息服务器，接着初始化该服务器和其他相关组件。
+
 \subsection{关键代码}
+本模块的主要逻辑如代码\ref{gem-core}所示：
+\begin{lstlisting}[caption={初始化核心代码展示}, label=gem-core]
+require 'rails'
+
+module MessageBus
+  class MessageBusRailtie < Rails::Railtie
+    private_class_method :new # MessageBusRailtie is not intend to be instantiated
+
+    initializer "message bus initializer" do
+      if defined?(Rails::Console)
+        flag = MessageBusRailtie::server_started?
+        MessageBusRailtie::find_server if flag
+      else
+        MessageBusRailtie::start_server
+        MessageBusRailtie::setup_filesystem_monitor
+      end
+    end
 
 
+    def self.server_started?
+      server = ActiveSupport::MessageBus::MessageServer.instance
+      server.started?
+    end
+
+    def self.find_server
+      remote_server = ActiveSupport::MessageBus::MessageServer.instance
+      remote_server.find_server # broadcast to find local server
+    end
+
+    def self.start_server
+      server = ActiveSupport::MessageBus::MessageServer.instance
+      server.start_server :deploy => :InProc # started in work thread
+    end
+
+    def self.setup_filesystem_monitor
+      opts = {:notifications => "filesystem_changes", :recurse => true}
+      monitor_path = Rails.root
+
+      listener = ActiveSupport::FileUpdateChecker.new([monitor_path], {}, opts)
+      Thread.new do
+        listener.start_listening
+      end
+
+      ActiveSupport::Notifications.subscribe("filesystem_changes") do |*args|
+        server = ActiveSupport::MessageBus::MessageServer.instance
+        begin
+          server.send_message args, true
+        rescue Error => err
+          puts "Failed to send message.(#{err})"
+        end
+      end
+    end
+  end
+end
+\end{lstlisting}
 
 
 
