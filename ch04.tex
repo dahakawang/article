@@ -220,15 +220,212 @@ end
 \end{lstlisting}
 
 
-\section{ActionControler::Live设计}
+\section{ActionController::Live设计}
 \subsection{接口设计}
-ActionControler::Live是负责Rails消息总线技术中负责底层数据实时传输的类，该类使用Rack劫持技术，使得上层逻辑能够绕开服务器对套接字的管理，从而向套接字任意的发送数据。该类的主要结构如下图所示：
+ActionController::Live是负责Rails消息总线技术中负责底层数据实时传输的类，该类使用Rack劫持技术，使得上层逻辑能够绕开服务器对套接字的管理，从而向套接字任意的发送数据。该类的主要类结构如下图所示：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/detail/response_class.eps}
+\caption{Response对象类图}
+\label{fig-response-class}
+\end{figure}
+
+Reponse实体类是模拟Rails框架中HTTP相应的实体类，它提供了一系列方法用于表示一个HTTP相应并储存其数据内容。Response类实际上继承自Rails系统的相应对象。commit!方法用于向Rails指出该响应目前已经构建完成，可以提交（发送至）浏览器客户端。t\_a这个接口是将Ruby类表示的HTTP响应对象序列化为字节流，这之后才能通过相应的数据发送模块将响应数据反馈回浏览器。build\_buffer方法用于生成一个Buffer对象，该对象用于缓存数据，从而能够提高网络IO工作效率。merge\_default\_headers这个方法主要用于合并参数中的HTTP头中的数据到自身，从而起到一个覆盖或者说重载数据的作用。handle\_conditional\_get主要是为了在客户端浏览器发送HTTP conditional GET请求的时候能够正确关闭相应对象而设计的接口。
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/detail/buffer_class.eps}
+\caption{Buffer对象类图}
+\label{fig-buffer-class}
+\end{figure}
+
+Buffer类主要提供了一套缓存机制，从而使得数据能够被缓存至一定时机方才将数据发送，最终提高了网路IO的工作效率。Buffer的initialize接口同样是其构造和初始化时调用的函数，接受一个Response对象实例，用于正确同步和Response的数据。write接口用于该缓存写入数据，该接口接受一个任意对象，将调用对象的to\_s方法从而获取一个string对象，并将其写入到缓冲区里。each接口用于读取缓存内容，Buffer并没有提供直接的字节级别的访问方式，而是使用each提供了给予块的访问方式。该方法接收一个Block对象，该对象将会在每轮迭代时被调用，并被传入缓存中的数据。close方法用于不使用缓存时将缓存关闭，从而回收系统资源防止资源泄露。
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/detail/header_class.eps}
+\caption{Header对象类图}
+\label{fig-header-class}
+\end{figure}
+
+Header类主要封装了HTTP数据报文中HTTP报头的数据，使得其可以通过面向对象的方式访问，而不需要手动解析ASCII数据流。该方法提供了的initialize接口接口接收一个response对象，并且初始化相应的状态。[]=方法用于提供对HTTP报头中对应数据域中数据的读写。merge方法则是提供了合并两个HTTP包头数据的工作，其参数是被合并进来的报头数据。to\_hash接口负责将Header对象转化为一个哈希表对象。
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/detail/live_class.eps}
+\caption{Header对象类图}
+\label{fig-live-class}
+\end{figure}
+
+Live模块主要负责改变Rails Controller对象原有的行为方式。这里的三个方法都是重载方法，他们改变了Rails原生控制器，使得其开始支持实时数据。process接口是负责响应浏览器HTTP请求是被调用，并产生HTTP响应的函数。response\_body=方法则主要是负责设置当前控制器的HTTP响应对象。set\_response对象则是负责设置控制器所关联的HTTP响应对象的状态到标准值。
+
 \subsection{工作流程}
+Live模块的主要工作流程如图\ref{fig-live-process}所示：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.27\textwidth]{images/detail/live-process.eps}
+\caption{Live模块工作流程}
+\label{fig-live-process}
+\end{figure}
+
+不难看到，到Rails接收到HTTP GET请求之后，便会根据相应路由规则将该请求路由给相应的控制器实例。控制器接收到请求之后，首先会将处理过程委托给一个新线程，然后立刻返回处理请求。这之后，控制器等待子线程的数据，一旦接收到任何数据则将立刻发送给客户端。这个过程将一直重复，直到客户端切断连接导致套接字关闭，或者上层逻辑显式地关闭数据流。
+
+
+
 \subsection{关键代码}
+Live的主要逻辑如代码\ref{live-core}所示：
+\begin{lstlisting}[caption={Live核心代码展示}, label=live-core]
+def process(name)
+  t1 = Thread.current
+  locals = t1.keys.map { |key| [key, t1[key]] }
+
+  # This processes the action in a child thread. It lets us return the
+  # response code and headers back up the rack stack, and still process
+  # the body in parallel with sending data to the client
+  Thread.new {
+    t2 = Thread.current
+    t2.abort_on_exception = true
+
+    # Since we're processing the view in a different thread, copy the
+    # thread locals from the main thread to the child thread. :'(
+    locals.each { |k,v| t2[k] = v }
+
+    begin
+      super(name)
+    ensure
+      @_response.commit!
+    end
+  }
+
+
+  raise NotImplementedError, "ActionController::Live requires rack hijack support" unless @_env["rack.hijack?"]
+  response.headers["rack.hijack"] = lambda do |io|
+    Thread.new {
+      begin
+        response.stream.each do |part|
+          io.write part
+        end
+      ensure
+        response.stream.close
+        io.close
+      end
+    }
+  end
+
+  @_response.await_commit
+end
+\end{lstlisting}
+
 \section{ActionControler::ServerSentEvents设计}
 \subsection{接口设计}
+ActionControler::ServerSentEvents负责提供SSE消息语义及其实现，目前提供了两种级别的SSE实现。该模块包含的类结构如下所示：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/detail/sse_class.eps}
+\caption{ServerSentEvent对象类图}
+\label{fig-sse-class}
+\end{figure}
+
+ServerSentEvent对象主要用于封装一个SSE消息体，该对象主要有两个接口，其中initialize接口负责初始化这个对象。该接口接收两个参数，第一个参数是消息数据本身，第二个参数是SSE消息选项。根据SSE标准协议，这些选项可能是name，id以及retry等，这些参数将通过哈希表的形式组织起来，并且通过第二个参数传入。
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/detail/sse_client_class.eps}
+\caption{SseClient对象类图}
+\label{fig-sseclient-class}
+\end{figure}
+
+SseClient对象主要负责同特定客户端实现SSE详细推送，该对象主要接口如下：首先，initialize接口负责初始化这个对象，该接口接受一个哈希表为参数，该参数主要用于参与设置该类的初始化状态设置，其中subscribe域设置该对象中包含的HTTP数据流对象，start\_on\_initialize域则表示一旦初始化这个对象则立刻开始尝试和浏览器客户端建立连接。send\_sse接口用于向客户端浏览器发送一个SSE消息体，该接口接受一个参数，这个参数是ServerSentEvent实例对象，包含了欲发送的数据内容。另一个接口是send\_sse\_hash接口，该接口和send\_sse接口类似，用于发送消息其唯一的不同在于，该接口接收一个哈希表，其中data键下的数据即为待传输的数据实体。start\_serve的调用会使得主调线程陷入阻塞态，此时线程等待其他线程写入数据，一旦检测到数据写入，该线程则立刻将数据传送给客户端浏览器，实现数据的实时传送。stream\_sse\_payload该方法接受一个ServerSentEvent对象，并将其传送给浏览器客户端。convert\_payload\_to\_message接口则负责将一个ServerSentEvent对象系列化，转换为字节流并返回。
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{images/detail/sses_class.eps}
+\caption{ServerSentEvents对象类图}
+\label{fig-sses-class}
+\end{figure}
+
+ServerSentEvents主要负责重载控制器原有行为方式，从而提供适合于实时数据传送的行为。其中，self.extended接口是一个回调函数，任何使用该模块的控制器都会调用它，该接口将把主调类注册至其内部变量，供控制器级别的SSE使用。sse\_source接口是一个自动定义接口，任何使用ServerSentEvents模块的控制器类都会获得这个函数的定义，用于处理控制器级别的SSE消息。send\_sse和send\_sse\_hash则主要是向所有访问该控制器的浏览器客户端发送SSE消息。client\_list则是当前所有连接到本控制器的浏览器客户端列表。start\_serve接口主要负责监听端口和传输数据。
+
 \subsection{工作流程}
+ServerSentEvents模块的主要工作流程如图\ref{fig-sses-process}所示：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.27\textwidth]{images/detail/sse_process.eps}
+\caption{ServerSentEvents模块工作流程}
+\label{fig-sses-process}
+\end{figure}
+
+首先，当浏览器向特定控制器请求接收SSE消息时，该控制器相应的action处理例程被调用了，接下来该例程会进行一系列初始化过程，这之后便会从一个数据队列中循环读取消息，如果没有消息则线程陷入阻塞状态直到有数据到达数据队列。一旦获取数据，该模块便会将数据构造为SSE对象，并序列化为合适的字节流表示方式同时构造HTTP响应数据流，并通过Live模块的实时传输功能将数据传输给浏览器客户端。而一旦发觉浏览器关闭了和服务器的链接，本模块则即刻退出，否则继续等待数据。
+
 \subsection{关键代码}
+ServerSentEvents的主要逻辑如代码\ref{sses-core}所示：
+\begin{lstlisting}[caption={ServerSentEvents核心代码展示}, label=sses-core]
+module ServerSentEvents
+  OPTIONAL_SSE_FIELDS = [:name, :id, :retry]
+  REQUIRED_SSE_FIELDS = [:data]
+
+  SSE_FIELDS = OPTIONAL_SSE_FIELDS + REQUIRED_SSE_FIELDS
+
+  module ClassMethods
+    @@sse_clients = {}
+
+    def self.extended(base)
+      base.class_exec do
+        # the entry point for a Controller level SSE source
+        def sse_source
+          start_serve self.class.client_list
+        end
+      end
+      @@sse_clients[base] = []
+    end
+
+    def send_sse(sse)
+      client_list.each do |client|
+        begin
+          client.send_sse(sse)
+        rescue IOError
+        end
+      end
+    end
+
+    def send_sse_hash(sse_hash)
+      client_list.each do |client|
+        begin
+          client.send_sse_hash(sse_hash)
+        rescue IOError
+        end
+      end
+    end
+
+    def client_list
+      @@sse_clients[self]
+    end
+  end
+
+  def start_serve(client_list = nil, &blk)
+    client = SseClient.new
+    client.subscribe response
+    client_list << client if client_list
+
+    Thread.new do 
+      begin
+        blk.call client if block_given?
+      ensure
+      end
+    end
+
+    client.start_serve
+  ensure
+    client_list.delete_if {|it| it == client} if client_list
+    response.stream.close
+  end
+end
+\end{lstlisting}
+
 \section{MessageBus及Instrument Gem设计}
 \subsection{接口设计}
 \subsection{工作流程}
