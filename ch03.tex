@@ -166,7 +166,9 @@ DRb Server不会直接和浏览器客户端通信，它会使用SSE Server模块
 
 最后，为了使得整个机制能够运转正常，还需要浏览器客户端方面的支持。实际上，第四大部件严格意义上来讲并不属于Rails消息总线技术。它实际上是位于浏览器客户端中的JavaScript脚本，用于接收SSE消息，并且指导浏览器针对不同的消息产生不同的响应行为。
 
-\subsection{SSE Server总体方案设计}
+\subsection{Rails消息总线总体方案设计}
+
+\subsubsection{SSE Server总体方案设计}
 SSE负责和浏览器直接通信，并且能够支持实时的向浏览器传送数据。但是，由于Rails使用了Rack技术（一种服务器通用接口技术），使得Rails很难绕过Rack的限制，直接和浏览器客户端进行通信。不难发觉，为了实现数据能够实时的发送至浏览器客户端，传统的基于Rack技术的网页服务器响应流程已经不适用了，需要一种新的机制来实现之。幸运的是，Rack在1.5之后提出了一套新的服务器接口标准，使得开发者能够直接从Rack手中接手对客户端原始套接字的占有，从而直接操作原始套接字，实现消息的实时发送。为了了解这个技术，需要简要介绍一下经典的Rack服务器响应流程。典型的Rails服务器栈如图\ref{fig-server-stack}所示。
 
 \begin{figure}[h]
@@ -193,7 +195,7 @@ SSE负责和浏览器直接通信，并且能够支持实时的向浏览器传�
 
 可以看到，基于Rack劫持技术的服务器栈和一个传统的Rack服务器栈非常类似。Rack依旧承担解耦不同服务器接口差异的工作，HTTP请求的数据流动方式也依旧是沿Rack服务器堆栈向上传递。可以说，最大的不同就是HTTP响应数据的路径了。图\ref{fig-rack-hijack}清晰地展示了此时HTTP Response是如何传递的：Rails直接从Rack获取了同浏览器连接的原始套接字，于是Rails自己构造HTTP响应报文之后，直接将数据发送给了浏览器，而没有流经其下任何一层协议栈。不难看出，通过Rack劫持技术，Rails甚至可以实现非HTTP协议的数据报。在Rails消息总线技术中，本文依旧使用了HTTP协议，但是在Rails构建HTTP响应报文其间，本技术会实时将部分报文传递给浏览器客户端，从而实现数据的实时推送。
 
-\subsection{DRb Server总体方案设计}
+\subsubsection{DRb Server总体方案设计}
 
 正如上一节所分析的，由于Rails运行的环境可能是由诸多集群服务器构成，并且即使统一台物理主机上亦可能存在多个工作进程。为了使得这些后台非服务器进程能够通过服务器进程和前端的浏览器进行通信，Rails消息总线技术提供了DRb Server技术用以实现将消息传递请求委托给相应的服务器进程技术。该技术的实现概况由图\ref{fig-drb}所示。
 
@@ -274,8 +276,8 @@ Rails消息总线技术从逻辑上来划分，共分为下述六大模块，每
 当SSE接受到请求之后，它将把统一的消息格式拆封，同时将消息体中的具体信息和数据提取出来，并组件新的SSE消息结构。根据当前和浏览器客户端的连接情况，SSE模块会设置SSE消息体的控制参数（例如消息序列号、重连机制等）。当SSE消息体构建成功之后，SSE模块将通知Live Streaming模块准备数据的传送，后者在接收到SSE消息体之后，将其序列化成字节流，并通过同浏览器客户端之间的原始套接字将数据发送至浏览器处。当然，这里依旧省略了Live Streaming模块劫持Rack原始套接字的过程。
 
 以上过程，便是Rails消息总线技术的一个典型的流程，通过对这个过程的描述，反应了本项目各个模块之间具体的职责和交互方式，下面将就每个具体模块进行介绍。
-
-\subsection{DRb和Rinda模块的逻辑结构}
+\subsection{Rails消息总线的逻辑结构}
+\subsubsection{DRb和Rinda模块的逻辑结构}
 DRb和Rinda模块主要负责将非服务器进程的数据传输请求委托给服务器进程，其主要包括如下几个模块：
 
 \begin{figure}[h]
@@ -291,7 +293,7 @@ DRb和Rinda模块主要负责将非服务器进程的数据传输请求委托给
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=\textwidth]{images/overview/drb_rinda_timing.eps}
+\includegraphics[width=0.95\textwidth]{images/overview/drb_rinda_timing.eps}
 \caption{DRb及Rinda模块交互时序图}
 \label{fig-drb-rinda-timing}
 \end{figure}
@@ -302,7 +304,7 @@ MessageServer在获取了DRb服务器的地址后，便会尝试连接该服务�
 
 在MessageServer获得任何一个服务对象之后，便可以通过该对象向服务发送请求了。ServerControlService服务可以接受一个控制命令，用以停止当前DRb服务器的运行，而MessageService提供了一个发送消息的接口，客户端可以通过该接口发送一条消息，该消息将被MessageService打包发送给SSE模块，从而最终实时地发送给浏览器客户端。
 
-\subsection{SSE模块的逻辑结构}
+\subsubsection{SSE模块的逻辑结构}
 SSE模块主要负责实现HTML5的SSE标准协议，为Rails上层部件提供标准SSE接口支持。该模块的结构如图\ref{fig-sse-module}所示：
 
 \begin{figure}[h]
@@ -337,7 +339,7 @@ SSE模块主要负责实现HTML5的SSE标准协议，为Rails上层部件提供�
 在图\ref{fig-sse-module-timing2}中，任何一个SSE消息的发起过程都源于本系统之外的某个组件的请求。当某个组件需要向客户端发送消息时，它首先将构建一个ServerSentEvent数据结构，并将消息数据封装于其中。这之后，通过向ServerSentEvents Module传送这个ServerSentEvent对象，使得ServerSentEvents Module发送该条SSE消息。ServerSentEvents Module拿到一个ServerSentEvents之后，会将其直接传送给SseClient。SseClient会对该条消息进行处理（添加序列ID、重连命令等），然后序列化成字节流，最后将该串字节流发送至浏览器客户端处，从而实现了实时SSE消息的发送。
 
 
-\subsection{Live Streaming模块的逻辑结构}
+\subsubsection{Live Streaming模块的逻辑结构}
 Live Streaming模块主要负责利用Rack劫持技术获取客户端原始套接字，从而实现向客户端的实时数据传输。该模块的主要结构如图\ref{fig-live}所示：
 
 \begin{figure}[h]

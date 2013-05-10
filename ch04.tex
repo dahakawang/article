@@ -2,101 +2,10 @@
 
 本章节主要旨在介绍Rails消息总线技术开发过程中的关键技术以及关键组件的设计和实现细节，通过对这些组件细节的介绍，描绘出整个系统的实现细节大观。
 
-\section{FileSystemChecker设计}
-\subsection{接口设计}
-FileSystemChecker类是负责监控特定目录，并且通知特定模块该目录文件系统发生变动的类。该类的定义如图\ref{fig-fuc-class}
+\section{Rails消息总线的设计}
 
-\begin{figure}[h]
-\centering
-\includegraphics[width=0.6\textwidth]{images/overview/file_update_checker_class.eps}
-\caption{FileSystemChecker类图}
-\label{fig-fuc-class}
-\end{figure}
-
-图\ref{fig-fuc-class}描述了该类所具有的接口，其中initialize接口是该类的构造函数，负责初始化该类的状态。这个接口可接受三个参数，第一个参数是一个数组，该数组包含了所有待监视的目录名。第二个参数是可选参数，它包括了一个哈希表，哈希表是以前一个参数中包含的各个目录名为键，对应的值是一个包含文件拓展名的数组，借此告知FileSystemChecker在对应目录下仅监视该拓展名的文件变动事件。第三个参数则是传入初始化选项，是一个哈希表，它支持如下这些选项：
-
-\begin{itemize}
-\item :filter。指明一个正则表达式，使得FileSystemChecker仅仅监视文件名符合该表达式的文件
-\item :ignore。指明一个正则表达式，使得FileSystemChecker忽略文件名和该表达式匹配的文件。
-\item :notification。指明一个包含Notification名字的数组，当文件变动时FileSystemChecker负责引发这些Notification，这时候如果这个Notification有相应的观察者，则这些观察者将最终收到FileSystemChecker的文件系统变动通知。
-\item :recurse。如果该参数为真，则FileSystemChecker会同时监控指明目录的所有子目录。通过对该目录进行深度优先搜索，所有该文件树的文件文件夹新建、修改、删除等事件都能被监控。
-\end{itemize}
-
-最后，initialize接口还接受一个Block，这个Block会在每次文件变动被检测到或者execute和execute\_if\_updated被调用是被执行。
-
-start\_listening函数指示FileSystemChecker开进监控文件系统的变动。一旦调用这个方法，程序将会陷入阻塞态，直到其他线程中的代码调用stop\_listening。相应的，stop\_listening负责停止FileSystemChecker对某个文件夹的监控。值得指出的是，一旦FileSystemChecker停止监控后在下一次开始监控时，会将期间所有文件变动通知给消息订阅者。
-
-updated?返回一个布尔值，知名当前是否有文件发生变动，execute将会引发传给构造函数的block的执行，并且会再次检查文件系统是否变动，execute\_if\_updated则是仅仅在有文件变动的前提下执行block。
-
-listen\_for\_changes是监控文件系统的实现函数，这个函数使用深度优先搜索方式搜索文件系统，并且找到文件系统的变动。update\_changed\_files负责实现深度优先搜索。
-
-\subsection{工作流程}
-图\ref{fig-fuc-process}展示了FileSystemChecker工作的主要流程：
-
-\begin{figure}[h]
-\centering
-\includegraphics[width=0.4\textwidth]{images/detail/fuc_process.eps}
-\caption{FileSystemChecker工作流程图}
-\label{fig-fuc-process}
-\end{figure}
-
-可以看到，FileSystemChecker在开始监控目录后是以无限循环的形式工作的，在每次循环之前，都会首先获取被监视文件系统的文件信息。实际上，该步骤是给文件系统拍摄快照，用于捕获其当前状态。这之后，FileSystemChecker会对合格树形结构的数据集合进行一个深度优先搜索，通过此实现对所有文件节点的比对。在这之后，FileSystemChecker将当前快照数据同该模块上一次捕获的快照进行比较，借此找出其不同。这些不同则是上次快照捕获到此时文件系统的变化，于是FileSystemChecker便能够即刻发现操作系统文件的变化。当发觉一个或者多个变化后，FileSystemChecker接下来便会通过Notification通知观察者该项变动。值得指出的是，Notification机制是Rails框架内早已存在的一项服务器内部通用消息传送方案，观察者需要首先向某个Notification注册自己，让后方能接收到FileSystemChecker发送的文件变动消息。
-
-\subsection{关键代码}
-代码\ref{fuc_core}展示了FileSystemChecker的核心实现：
-\begin{lstlisting}[caption={FileSystemChecker核心代码展示}, label=fuc_core]
-# Starts listening to changes in the filesystem. This method is
-# synchronized until the stop_listening method is called. Once the object
-# starts listening, it goes through and checks all files that have been
-# changed since the object was created.
-#
-# If the object was previously stopped, and start_listening is called
-# again, then all of the file changes since the last stop was called will
-# be pushed to the changed_files queue. The files which were created and
-# deleted between the stop and start of the method will be ignored.
-def start_listening
-  @continue_listening = true
-  while @continue_listening
-    listen_for_changes
-    sleep(0.5)
-  end
-end
-
-def listen_for_changes
-  @semaphore.synchronize do
-    @files_alive = []
-
-    paths = initialize_paths(@paths, @dirs)
-    directories = handle_paths(paths)
-    if @opts[:recurse]
-      update_changed_files(directories)
-    end
-
-    deleted_files = @file_cache.keys - @files_alive.uniq
-    deleted_files.each do |filename|
-      @file_cache.delete(filename)
-      push_changes(filename, :removed)
-    end
-  end
-end
-
-def update_changed_files(directories)
-  new_directory_paths = []
-
-  directories.each do |directory_path|
-    expanded_filepaths = Dir.foreach(directory_path)
-    .reject { |path| path == ".." || path == "." }  # reject up and self directories on UNIX
-    .map { |path| "#{directory_path}/#{path}" }
-
-    new_directory_paths += handle_paths(expanded_filepaths)
-  end
-
-  update_changed_files(new_directory_paths) if new_directory_paths.any?
-end
-\end{lstlisting}
-
-\section{MessageServer设计}
-\subsection{接口设计}
+\subsection{MessageServer设计}
+\subsubsection{接口设计}
 MessageServer模块负责实现DRb服务器，和Rinda服务器，使得非服务器进程能够和服务器进程，进而能够向后者委托消息传送任务。其主要类的基本结构如下：
 
 \begin{figure}[h]
@@ -144,7 +53,7 @@ send\_message是最为重要的接口，他是MessageServer的服务接口。Mes
 
 对于ServerControlService类来说，亦使用了单例设计模式，因此getInstance同样用于获取一个实例。stop\_server则供远程调用，以终止DRb服务器的运行。MessageService类的getInstance用于获取单例实例。其send\_message接口则用于远程方向本地请求发送消息，本地服务器接收到请求后，便会通知相应前端，向浏览器发送消息。为了知道通过哪个前端控制器向客户端发送数据，相应的控制器需要首先调用egister\_reload\_handler接口，从而将自己注册给本系统，使得本系统能够通知其发送消息。
 
-\subsection{工作流程}
+\subsubsection{工作流程}
 图\ref{fig-msg-process}展示了MessageServer的基本工作流程：
 \begin{figure}[h]
 \centering
@@ -156,7 +65,7 @@ send\_message是最为重要的接口，他是MessageServer的服务接口。Mes
 在系统初始化时，首先需要发送一个广播的数据包，这个广播报文将被Rinda服务器收到，并告知自己的存在。系统接收到Rinda服务器的存在消息之后，便会向Rinda服务器请求本地DRb服务器的URI地址。Rinda服务器接收到该请求之后，便会将之前向自己注册的DRb服务器的地址传送给系统。系统接收到URI数据之后，便会尝试连接该URI，从而和DRb服务器建立了连接。在和DRb服务器建立连接之后，系统将向其请求一个前端对象。此时，系统获得的前端对象实际上是一个工厂，因此系统将向该工厂请求其他的服务对象。目前来说，有两个对象，一个负责控制DRb服务器的运行，另一个负责发送实时消息。系统获得服务对象之后，便通过相应服务对象的接口，实现相应的功能。
 
 
-\subsection{关键代码}
+\subsubsection{关键代码}
 MessageServer的主要逻辑如代码\ref{msg-server-core}所示：
 \begin{lstlisting}[caption={MessageServer核心代码展示}, label=msg-server-core]
 class MessageServer
@@ -220,8 +129,8 @@ end
 \end{lstlisting}
 
 
-\section{ActionController::Live设计}
-\subsection{接口设计}
+\subsection{ActionController::Live设计}
+\subsubsection{接口设计}
 ActionController::Live是负责Rails消息总线技术中负责底层数据实时传输的类，该类使用Rack劫持技术，使得上层逻辑能够绕开服务器对套接字的管理，从而向套接字任意的发送数据。该类的主要类结构如下图所示：
 
 \begin{figure}[h]
@@ -260,7 +169,7 @@ Header类主要封装了HTTP数据报文中HTTP报头的数据，使得其可以
 
 Live模块主要负责改变Rails Controller对象原有的行为方式。这里的三个方法都是重载方法，他们改变了Rails原生控制器，使得其开始支持实时数据。process接口是负责响应浏览器HTTP请求是被调用，并产生HTTP响应的函数。response\_body=方法则主要是负责设置当前控制器的HTTP响应对象。set\_response对象则是负责设置控制器所关联的HTTP响应对象的状态到标准值。
 
-\subsection{工作流程}
+\subsubsection{工作流程}
 Live模块的主要工作流程如图\ref{fig-live-process}所示：
 
 \begin{figure}[h]
@@ -274,7 +183,7 @@ Live模块的主要工作流程如图\ref{fig-live-process}所示：
 
 
 
-\subsection{关键代码}
+\subsubsection{关键代码}
 Live的主要逻辑如代码\ref{live-core}所示：
 \begin{lstlisting}[caption={Live核心代码展示}, label=live-core]
 def process(name)
@@ -318,8 +227,8 @@ def process(name)
 end
 \end{lstlisting}
 
-\section{ActionControler::ServerSentEvents设计}
-\subsection{接口设计}
+\subsection{ActionControler::ServerSentEvents设计}
+\subsubsection{接口设计}
 ActionControler::ServerSentEvents负责提供SSE消息语义及其实现，目前提供了两种级别的SSE实现。该模块包含的类结构如下所示：
 
 \begin{figure}[h]
@@ -349,7 +258,7 @@ SseClient对象主要负责同特定客户端实现SSE详细推送，该对象�
 
 ServerSentEvents主要负责重载控制器原有行为方式，从而提供适合于实时数据传送的行为。其中，self.extended接口是一个回调函数，任何使用该模块的控制器都会调用它，该接口将把主调类注册至其内部变量，供控制器级别的SSE使用。sse\_source接口是一个自动定义接口，任何使用ServerSentEvents模块的控制器类都会获得这个函数的定义，用于处理控制器级别的SSE消息。send\_sse和send\_sse\_hash则主要是向所有访问该控制器的浏览器客户端发送SSE消息。client\_list则是当前所有连接到本控制器的浏览器客户端列表。start\_serve接口主要负责监听端口和传输数据。
 
-\subsection{工作流程}
+\subsubsection{工作流程}
 ServerSentEvents模块的主要工作流程如图\ref{fig-sses-process}所示：
 
 \begin{figure}[h]
@@ -361,7 +270,7 @@ ServerSentEvents模块的主要工作流程如图\ref{fig-sses-process}所示：
 
 首先，当浏览器向特定控制器请求接收SSE消息时，该控制器相应的action处理例程被调用了，接下来该例程会进行一系列初始化过程，这之后便会从一个数据队列中循环读取消息，如果没有消息则线程陷入阻塞状态直到有数据到达数据队列。一旦获取数据，该模块便会将数据构造为SSE对象，并序列化为合适的字节流表示方式同时构造HTTP响应数据流，并通过Live模块的实时传输功能将数据传输给浏览器客户端。而一旦发觉浏览器关闭了和服务器的链接，本模块则即刻退出，否则继续等待数据。
 
-\subsection{关键代码}
+\subsubsection{关键代码}
 ServerSentEvents的主要逻辑如代码\ref{sses-core}所示：
 \begin{lstlisting}[caption={ServerSentEvents核心代码展示}, label=sses-core]
 module ServerSentEvents
@@ -426,8 +335,102 @@ module ServerSentEvents
 end
 \end{lstlisting}
 
-\section{MessageBus及Instrument Gem设计}
-\subsection{接口设计}
+\section{Auto Reload和Backend Instrumentation的设计}
+\subsection{FileSystemChecker设计}
+\subsubsection{接口设计}
+FileSystemChecker类是负责监控特定目录，并且通知特定模块该目录文件系统发生变动的类。该类的定义如图\ref{fig-fuc-class}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.6\textwidth]{images/overview/file_update_checker_class.eps}
+\caption{FileSystemChecker类图}
+\label{fig-fuc-class}
+\end{figure}
+
+图\ref{fig-fuc-class}描述了该类所具有的接口，其中initialize接口是该类的构造函数，负责初始化该类的状态。这个接口可接受三个参数，第一个参数是一个数组，该数组包含了所有待监视的目录名。第二个参数是可选参数，它包括了一个哈希表，哈希表是以前一个参数中包含的各个目录名为键，对应的值是一个包含文件拓展名的数组，借此告知FileSystemChecker在对应目录下仅监视该拓展名的文件变动事件。第三个参数则是传入初始化选项，是一个哈希表，它支持如下这些选项：
+
+\begin{itemize}
+\item :filter。指明一个正则表达式，使得FileSystemChecker仅仅监视文件名符合该表达式的文件
+\item :ignore。指明一个正则表达式，使得FileSystemChecker忽略文件名和该表达式匹配的文件。
+\item :notification。指明一个包含Notification名字的数组，当文件变动时FileSystemChecker负责引发这些Notification，这时候如果这个Notification有相应的观察者，则这些观察者将最终收到FileSystemChecker的文件系统变动通知。
+\item :recurse。如果该参数为真，则FileSystemChecker会同时监控指明目录的所有子目录。通过对该目录进行深度优先搜索，所有该文件树的文件文件夹新建、修改、删除等事件都能被监控。
+\end{itemize}
+
+最后，initialize接口还接受一个Block，这个Block会在每次文件变动被检测到或者execute和execute\_if\_updated被调用是被执行。
+
+start\_listening函数指示FileSystemChecker开进监控文件系统的变动。一旦调用这个方法，程序将会陷入阻塞态，直到其他线程中的代码调用stop\_listening。相应的，stop\_listening负责停止FileSystemChecker对某个文件夹的监控。值得指出的是，一旦FileSystemChecker停止监控后在下一次开始监控时，会将期间所有文件变动通知给消息订阅者。
+
+updated?返回一个布尔值，知名当前是否有文件发生变动，execute将会引发传给构造函数的block的执行，并且会再次检查文件系统是否变动，execute\_if\_updated则是仅仅在有文件变动的前提下执行block。
+
+listen\_for\_changes是监控文件系统的实现函数，这个函数使用深度优先搜索方式搜索文件系统，并且找到文件系统的变动。update\_changed\_files负责实现深度优先搜索。
+
+\subsubsection{工作流程}
+图\ref{fig-fuc-process}展示了FileSystemChecker工作的主要流程：
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.3\textwidth]{images/detail/fuc_process.eps}
+\caption{FileSystemChecker工作流程图}
+\label{fig-fuc-process}
+\end{figure}
+
+可以看到，FileSystemChecker在开始监控目录后是以无限循环的形式工作的，在每次循环之前，都会首先获取被监视文件系统的文件信息。实际上，该步骤是给文件系统拍摄快照，用于捕获其当前状态。这之后，FileSystemChecker会对合格树形结构的数据集合进行一个深度优先搜索，通过此实现对所有文件节点的比对。在这之后，FileSystemChecker将当前快照数据同该模块上一次捕获的快照进行比较，借此找出其不同。这些不同则是上次快照捕获到此时文件系统的变化，于是FileSystemChecker便能够即刻发现操作系统文件的变化。当发觉一个或者多个变化后，FileSystemChecker接下来便会通过Notification通知观察者该项变动。值得指出的是，Notification机制是Rails框架内早已存在的一项服务器内部通用消息传送方案，观察者需要首先向某个Notification注册自己，让后方能接收到FileSystemChecker发送的文件变动消息。
+
+\subsubsection{关键代码}
+代码\ref{fuc_core}展示了FileSystemChecker的核心实现：
+\begin{lstlisting}[caption={FileSystemChecker核心代码展示}, label=fuc_core]
+# Starts listening to changes in the filesystem. This method is
+# synchronized until the stop_listening method is called. Once the object
+# starts listening, it goes through and checks all files that have been
+# changed since the object was created.
+#
+# If the object was previously stopped, and start_listening is called
+# again, then all of the file changes since the last stop was called will
+# be pushed to the changed_files queue. The files which were created and
+# deleted between the stop and start of the method will be ignored.
+def start_listening
+  @continue_listening = true
+  while @continue_listening
+    listen_for_changes
+    sleep(0.5)
+  end
+end
+
+def listen_for_changes
+  @semaphore.synchronize do
+    @files_alive = []
+
+    paths = initialize_paths(@paths, @dirs)
+    directories = handle_paths(paths)
+    if @opts[:recurse]
+      update_changed_files(directories)
+    end
+
+    deleted_files = @file_cache.keys - @files_alive.uniq
+    deleted_files.each do |filename|
+      @file_cache.delete(filename)
+      push_changes(filename, :removed)
+    end
+  end
+end
+
+def update_changed_files(directories)
+  new_directory_paths = []
+
+  directories.each do |directory_path|
+    expanded_filepaths = Dir.foreach(directory_path)
+    .reject { |path| path == ".." || path == "." }  # reject up and self directories on UNIX
+    .map { |path| "#{directory_path}/#{path}" }
+
+    new_directory_paths += handle_paths(expanded_filepaths)
+  end
+
+  update_changed_files(new_directory_paths) if new_directory_paths.any?
+end
+\end{lstlisting}
+
+\subsection{MessageBus及Instrument Gem设计}
+\subsubsection{接口设计}
 MessageBus Gem是Rails消息总线技术中负责初始化Auto Reload模块的功能，并提供以Railtie的形式的初始化插件。Instrument Gem则是本系统中负责提供后台性能数据评估和收集的模块，该模块同时提供了相应的初始化功能，并且同样以Railtie的形式将其插件化。这两个类的主要类结构如下图所示：
 
 \begin{figure}[h]
@@ -448,19 +451,19 @@ MessageBus Gem是Rails消息总线技术中负责初始化Auto Reload模块的�
 
 可以看到，Instrument Gem主要是由两个接口构成的。首先是initializer接口，该结构并非其构造函数或是类初始化接口，而是作为Railtie整体框架下的一个回调函数。因为Instrument Gem同样使用了Railtie技术，作为Railtie初始化进程，在整个Rails初始化时会依次调用所有Railtie的的初始化回调方法，则此时Instrument Gem相应方法将被调用，从而实现该模块的初始化。self.register\_handler则是负责注册一个控制器，该控制器会在本模块收集到性能数据后作为目标将数据发送之。
 
-\subsection{工作流程}
+\subsubsection{工作流程}
 本模块的主要工作流程如图\ref{fig-gem-process}所示：
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.25\textwidth]{images/detail/gem_process.eps}
+\includegraphics[width=0.35\textwidth]{images/detail/gem_process.eps}
 \caption{工作流程}
 \label{fig-gem-process}
 \end{figure}
 
 在初始化开始的时候，本模块首先会建立相应的控制器，并将其初始化到正确状态。接着，将会新建一个线程，并将任务委托给子线程进行。接下来将会判断当前执行环境，如若是Rails控制台的话，将会自动寻找现已存在的消息总线服务器，接着初始化过程结束；但如果是Rails服务器环境，则会首先建立一个新的消息服务器，接着初始化该服务器和其他相关组件。
 
-\subsection{关键代码}
+\subsubsection{关键代码}
 本模块的主要逻辑如代码\ref{gem-core}所示：
 \begin{lstlisting}[caption={初始化核心代码展示}, label=gem-core]
 require 'rails'
